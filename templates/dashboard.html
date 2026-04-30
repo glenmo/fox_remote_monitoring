@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fox ESS H3 Pro Monitor</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+    <style>
+        :root {
+            --bg-primary: #0f172a;
+            --bg-card: #1e293b;
+            --bg-card-hover: #334155;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --accent-blue: #3b82f6;
+            --accent-green: #22c55e;
+            --accent-yellow: #eab308;
+            --accent-orange: #f97316;
+            --accent-red: #ef4444;
+            --accent-purple: #a855f7;
+            --accent-cyan: #06b6d4;
+            --border: #334155;
+            --gauge-track: #334155;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+
+        .header {
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border);
+            padding: 12px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .header h1 { font-size: 1.25rem; font-weight: 600; }
+        .header h1 span { color: var(--accent-orange); }
+
+        .header-status { display: flex; align-items: center; gap: 16px; font-size: 0.85rem; color: var(--text-secondary); }
+        .status-dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            display: inline-block; margin-right: 6px;
+        }
+        .status-dot.ok  { background: var(--accent-green); box-shadow: 0 0 6px var(--accent-green); }
+        .status-dot.err { background: var(--accent-red);   box-shadow: 0 0 6px var(--accent-red); }
+
+        /* layout */
+        .dashboard {
+            max-width: 1500px;
+            margin: 0 auto;
+            padding: 20px;
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 16px;
+        }
+
+        @media (max-width: 1100px) { .dashboard { grid-template-columns: 1fr 1fr; } }
+        @media (max-width: 700px)  { .dashboard { grid-template-columns: 1fr; } }
+
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 18px;
+        }
+        .card.span-2 { grid-column: span 2; }
+        .card.span-3 { grid-column: span 3; }
+
+        .card-title {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--text-muted);
+            margin-bottom: 12px;
+        }
+
+        /* SoC gauge */
+        .soc-card { display: flex; flex-direction: column; align-items: center; }
+        .soc-gauge { position: relative; width: 200px; height: 200px; }
+        .soc-gauge canvas { width: 100% !important; height: 100% !important; }
+        .soc-gauge .soc-text {
+            position: absolute; top: 50%; left: 50%;
+            transform: translate(-50%, -50%); text-align: center;
+        }
+        .soc-gauge .soc-value { font-size: 2.6rem; font-weight: 700; line-height: 1; }
+        .soc-gauge .soc-label { font-size: 0.85rem; color: var(--text-secondary); margin-top: 4px; }
+        .soc-detail {
+            margin-top: 10px; font-size: 0.85rem;
+            color: var(--text-secondary); text-align: center;
+        }
+        .soc-detail span { color: var(--text-primary); font-weight: 500; }
+
+        /* metric tiles */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+        }
+        .metric {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 12px;
+        }
+        .metric-icon {
+            width: 28px; height: 28px; border-radius: 6px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 0.95rem; margin-bottom: 6px;
+        }
+        .metric-label {
+            font-size: 0.66rem; color: var(--text-muted);
+            text-transform: uppercase; letter-spacing: 0.05em;
+        }
+        .metric-value { font-size: 1.35rem; font-weight: 700; margin-top: 2px; }
+        .metric-unit {
+            font-size: 0.78rem; font-weight: 400;
+            color: var(--text-secondary); margin-left: 3px;
+        }
+        .metric-sub { font-size: 0.7rem; color: var(--text-secondary); margin-top: 2px; }
+
+        .icon-solar   { background: rgba(234,179,8,0.15); color: var(--accent-yellow); }
+        .icon-grid    { background: rgba(59,130,246,0.15); color: var(--accent-blue); }
+        .icon-battery { background: rgba(34,197,94,0.15);  color: var(--accent-green); }
+        .icon-load    { background: rgba(249,115,22,0.15); color: var(--accent-orange); }
+        .icon-eps     { background: rgba(168,85,247,0.15); color: var(--accent-purple); }
+        .icon-freq    { background: rgba(6,182,212,0.15);  color: var(--accent-cyan); }
+        .icon-temp    { background: rgba(239,68,68,0.15);  color: var(--accent-red); }
+
+        /* phase / flow tables */
+        .three-col {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            text-align: center;
+            margin-top: 6px;
+        }
+        .three-col .label {
+            font-size: 0.65rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+        }
+        .three-col .val {
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        /* flow direction badges */
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.7rem;
+            font-weight: 600;
+        }
+        .badge.in   { background: rgba(34,197,94,0.2);  color: var(--accent-green); }
+        .badge.out  { background: rgba(239,68,68,0.2);  color: var(--accent-red); }
+        .badge.idle { background: rgba(148,163,184,0.2); color: var(--text-secondary); }
+
+        /* alarm list */
+        .alarm-list { list-style: none; padding: 0; }
+        .alarm-list li {
+            padding: 6px 10px;
+            margin-top: 4px;
+            border-radius: 6px;
+            background: rgba(239, 68, 68, 0.08);
+            border-left: 3px solid var(--accent-red);
+            font-size: 0.85rem;
+        }
+        .alarm-none {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            font-style: italic;
+        }
+
+        /* charts */
+        .chart-wrap { position: relative; height: 240px; }
+
+        /* footer message bar */
+        .message-bar {
+            background: var(--bg-card);
+            border-top: 1px solid var(--border);
+            padding: 8px 24px;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            text-align: center;
+        }
+        .message-bar:empty { display: none; }
+
+        a { color: var(--accent-blue); text-decoration: none; }
+    </style>
+</head>
+<body>
+<header class="header">
+    <h1><span>FOX ESS</span> H3 Pro Monitor</h1>
+    <div class="header-status">
+        <span><span class="status-dot" id="conn-dot"></span><span id="conn-label">…</span></span>
+        <span id="last-read">—</span>
+        <span id="status-mode">—</span>
+    </div>
+</header>
+
+<main class="dashboard">
+
+    <!-- 1. Battery SoC gauge -->
+    <section class="card soc-card">
+        <div class="card-title">Battery State of Charge</div>
+        <div class="soc-gauge">
+            <canvas id="socGauge"></canvas>
+            <div class="soc-text">
+                <div class="soc-value" id="soc-value">—</div>
+                <div class="soc-label">SoC</div>
+            </div>
+        </div>
+        <div class="soc-detail">
+            BMS1 SoH <span id="bms-soh">—</span>%  ·
+            <span id="batt-power-badge" class="badge idle">idle</span>
+            <span id="batt-power-watts">— W</span>
+        </div>
+    </section>
+
+    <!-- 2. Power summary tiles -->
+    <section class="card span-2">
+        <div class="card-title">Power Flow</div>
+        <div class="metrics-grid">
+            <div class="metric">
+                <div class="metric-icon icon-solar">☀</div>
+                <div class="metric-label">PV Total</div>
+                <div class="metric-value"><span id="m-pv">—</span><span class="metric-unit">W</span></div>
+                <div class="metric-sub" id="m-pv-today">Today: — kWh</div>
+            </div>
+            <div class="metric">
+                <div class="metric-icon icon-grid">⚡</div>
+                <div class="metric-label">Grid (Meter)</div>
+                <div class="metric-value"><span id="m-grid">—</span><span class="metric-unit">W</span></div>
+                <div class="metric-sub" id="m-grid-dir">—</div>
+            </div>
+            <div class="metric">
+                <div class="metric-icon icon-battery">🔋</div>
+                <div class="metric-label">Battery</div>
+                <div class="metric-value"><span id="m-batt">—</span><span class="metric-unit">W</span></div>
+                <div class="metric-sub" id="m-batt-dir">—</div>
+            </div>
+            <div class="metric">
+                <div class="metric-icon icon-load">🏠</div>
+                <div class="metric-label">Load</div>
+                <div class="metric-value"><span id="m-load">—</span><span class="metric-unit">W</span></div>
+                <div class="metric-sub" id="m-load-today">Today: — kWh</div>
+            </div>
+            <div class="metric">
+                <div class="metric-icon icon-eps">🛡</div>
+                <div class="metric-label">EPS Output</div>
+                <div class="metric-value"><span id="m-eps">—</span><span class="metric-unit">W</span></div>
+                <div class="metric-sub" id="m-eps-freq">— Hz</div>
+            </div>
+            <div class="metric">
+                <div class="metric-icon icon-freq">∿</div>
+                <div class="metric-label">Grid Frequency</div>
+                <div class="metric-value"><span id="m-freq">—</span><span class="metric-unit">Hz</span></div>
+                <div class="metric-sub" id="m-pf">PF: —</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 3. Grid 3-phase -->
+    <section class="card">
+        <div class="card-title">Grid Voltages</div>
+        <div class="three-col">
+            <div><div class="label">L1 / R</div><div class="val"><span id="v-r">—</span> V</div></div>
+            <div><div class="label">L2 / S</div><div class="val"><span id="v-s">—</span> V</div></div>
+            <div><div class="label">L3 / T</div><div class="val"><span id="v-t">—</span> V</div></div>
+        </div>
+        <div class="card-title" style="margin-top:14px;">Inverter Currents</div>
+        <div class="three-col">
+            <div><div class="label">R</div><div class="val"><span id="i-r">—</span> A</div></div>
+            <div><div class="label">S</div><div class="val"><span id="i-s">—</span> A</div></div>
+            <div><div class="label">T</div><div class="val"><span id="i-t">—</span> A</div></div>
+        </div>
+    </section>
+
+    <!-- 4. PV strings -->
+    <section class="card">
+        <div class="card-title">PV Strings</div>
+        <table style="width:100%;font-size:0.85rem;border-collapse:collapse;">
+            <thead>
+                <tr style="color:var(--text-muted);">
+                    <th style="text-align:left;padding:4px 6px;">String</th>
+                    <th style="text-align:right;padding:4px 6px;">V</th>
+                    <th style="text-align:right;padding:4px 6px;">A</th>
+                    <th style="text-align:right;padding:4px 6px;">W</th>
+                </tr>
+            </thead>
+            <tbody id="pv-rows">
+                <!-- populated by JS -->
+            </tbody>
+        </table>
+        <div class="metric-sub" style="margin-top:8px;">
+            Lifetime: <span id="pv-total">—</span> kWh
+        </div>
+    </section>
+
+    <!-- 5. Battery details -->
+    <section class="card">
+        <div class="card-title">Battery</div>
+        <div class="three-col">
+            <div><div class="label">Voltage</div><div class="val"><span id="b-v">—</span> V</div></div>
+            <div><div class="label">Current</div><div class="val"><span id="b-i">—</span> A</div></div>
+            <div><div class="label">Temp</div><div class="val"><span id="b-t">—</span>°C</div></div>
+        </div>
+        <div class="three-col" style="margin-top:8px;">
+            <div><div class="label">Cell Max</div><div class="val"><span id="b-vmax">—</span> mV</div></div>
+            <div><div class="label">Cell Min</div><div class="val"><span id="b-vmin">—</span> mV</div></div>
+            <div><div class="label">SoH</div><div class="val"><span id="b-soh">—</span>%</div></div>
+        </div>
+        <div class="metric-sub" style="margin-top:10px;">
+            Charged today: <span id="charge-today">—</span> kWh ·
+            Discharged today: <span id="discharge-today">—</span> kWh
+        </div>
+    </section>
+
+    <!-- 6. Energy totals -->
+    <section class="card">
+        <div class="card-title">Energy Today / Lifetime</div>
+        <table style="width:100%;font-size:0.9rem;">
+            <tr><td style="color:var(--text-secondary);">PV generation</td>
+                <td style="text-align:right;"><span id="e-pv-today">—</span> / <span id="e-pv-total">—</span> kWh</td></tr>
+            <tr><td style="color:var(--text-secondary);">Grid feed-in</td>
+                <td style="text-align:right;"><span id="e-feed-today">—</span> / <span id="e-feed-total">—</span> kWh</td></tr>
+            <tr><td style="color:var(--text-secondary);">Grid import</td>
+                <td style="text-align:right;"><span id="e-imp-today">—</span> / <span id="e-imp-total">—</span> kWh</td></tr>
+            <tr><td style="color:var(--text-secondary);">Battery charge</td>
+                <td style="text-align:right;"><span id="e-chg-today">—</span> / <span id="e-chg-total">—</span> kWh</td></tr>
+            <tr><td style="color:var(--text-secondary);">Battery discharge</td>
+                <td style="text-align:right;"><span id="e-dis-today">—</span> / <span id="e-dis-total">—</span> kWh</td></tr>
+            <tr><td style="color:var(--text-secondary);">Load</td>
+                <td style="text-align:right;"><span id="e-load-today">—</span> / <span id="e-load-total">—</span> kWh</td></tr>
+        </table>
+    </section>
+
+    <!-- 7. Alarms -->
+    <section class="card">
+        <div class="card-title">Alarms</div>
+        <ul class="alarm-list" id="alarm-list">
+            <li class="alarm-none">No active alarms</li>
+        </ul>
+        <div class="metric-sub" style="margin-top:10px;">
+            Internal temp: <span id="t-int">—</span>°C
+        </div>
+    </section>
+
+    <!-- 8. Power chart -->
+    <section class="card span-3">
+        <div class="card-title">Power Flow — Last 24 Hours</div>
+        <div class="chart-wrap"><canvas id="powerChart"></canvas></div>
+    </section>
+
+    <!-- 9. SoC chart -->
+    <section class="card span-3">
+        <div class="card-title">Battery SoC — Last 24 Hours</div>
+        <div class="chart-wrap"><canvas id="socChart"></canvas></div>
+    </section>
+
+</main>
+
+<div class="message-bar" id="message-bar"></div>
+
+<script>
+// ---- SoC doughnut gauge -----------------------------------------------
+const socGaugeCtx = document.getElementById('socGauge').getContext('2d');
+const socGauge = new Chart(socGaugeCtx, {
+    type: 'doughnut',
+    data: {
+        datasets: [{
+            data: [0, 100],
+            backgroundColor: ['#22c55e', '#334155'],
+            borderWidth: 0,
+            cutout: '78%',
+            rotation: -90,
+            circumference: 360,
+        }]
+    },
+    options: {
+        plugins: { legend: { display: false }, tooltip: { enabled: false } },
+        animation: { duration: 400 },
+        responsive: true,
+        maintainAspectRatio: false,
+    }
+});
+
+function gaugeColor(soc) {
+    if (soc < 20) return '#ef4444';
+    if (soc < 40) return '#f97316';
+    if (soc < 70) return '#eab308';
+    return '#22c55e';
+}
+
+// ---- Time series charts ------------------------------------------------
+const sharedAxisOpts = {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+        legend: { labels: { color: '#94a3b8', font: { size: 11 } } },
+        tooltip: {
+            backgroundColor: '#1e293b',
+            borderColor: '#334155',
+            borderWidth: 1,
+            titleColor: '#f1f5f9',
+            bodyColor: '#94a3b8',
+        }
+    },
+    scales: {
+        x: { ticks: { color: '#64748b', maxTicksLimit: 12 }, grid: { color: '#334155' } },
+        y: { ticks: { color: '#64748b' }, grid: { color: '#334155' } },
+    }
+};
+
+const powerChart = new Chart(document.getElementById('powerChart').getContext('2d'), {
+    type: 'line',
+    data: {
+        labels: [],
+        datasets: [
+            { label: 'PV (W)',      borderColor: '#eab308', backgroundColor: 'rgba(234,179,8,0.1)',  data: [], tension: 0.3, fill: true },
+            { label: 'Load (W)',    borderColor: '#f97316', backgroundColor: 'rgba(249,115,22,0.1)', data: [], tension: 0.3, fill: true },
+            { label: 'Battery (W)', borderColor: '#22c55e', backgroundColor: 'transparent',         data: [], tension: 0.3 },
+            { label: 'Grid (W)',    borderColor: '#3b82f6', backgroundColor: 'transparent',         data: [], tension: 0.3 },
+        ]
+    },
+    options: sharedAxisOpts
+});
+
+const socChart = new Chart(document.getElementById('socChart').getContext('2d'), {
+    type: 'line',
+    data: {
+        labels: [],
+        datasets: [
+            { label: 'SoC (%)', borderColor: '#22c55e', backgroundColor: 'rgba(34,197,94,0.15)', data: [], tension: 0.3, fill: true },
+            { label: 'Frequency (Hz)', borderColor: '#06b6d4', backgroundColor: 'transparent', data: [], tension: 0.3, yAxisID: 'y1' },
+        ]
+    },
+    options: {
+        ...sharedAxisOpts,
+        scales: {
+            ...sharedAxisOpts.scales,
+            y:  { min: 0, max: 100, ticks: { color: '#64748b' }, grid: { color: '#334155' }, title: { display: true, text: 'SoC %', color: '#94a3b8' } },
+            y1: { position: 'right', min: 49, max: 51, ticks: { color: '#64748b' }, grid: { display: false }, title: { display: true, text: 'Hz', color: '#94a3b8' } },
+        }
+    }
+});
+
+// ---- Helpers ----------------------------------------------------------
+function fmt(v, digits = 1) {
+    if (v === null || v === undefined || Number.isNaN(v)) return '—';
+    return Number(v).toLocaleString('en-AU', {
+        minimumFractionDigits: digits,
+        maximumFractionDigits: digits
+    });
+}
+
+function setText(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = value;
+}
+
+// ---- Polling ----------------------------------------------------------
+async function fetchData() {
+    try {
+        const [dataRes, statusRes] = await Promise.all([
+            fetch('/api/data').then(r => r.json()),
+            fetch('/api/status').then(r => r.json()),
+        ]);
+
+        // connection status
+        const dot   = document.getElementById('conn-dot');
+        const label = document.getElementById('conn-label');
+        if (statusRes.connected) {
+            dot.className = 'status-dot ok';
+            label.textContent = `Connected ${statusRes.host}:${statusRes.port}`;
+        } else {
+            dot.className = 'status-dot err';
+            label.textContent = `Disconnected ${statusRes.host}:${statusRes.port}`;
+        }
+        if (statusRes.last_read) {
+            const dt = new Date(statusRes.last_read);
+            setText('last-read', `Last read ${dt.toLocaleTimeString('en-AU')}`);
+        }
+
+        if (!dataRes || dataRes.error) return;
+        const d = dataRes;
+
+        // SoC gauge
+        const soc = Number(d.system_soc ?? 0);
+        socGauge.data.datasets[0].data = [soc, 100 - soc];
+        socGauge.data.datasets[0].backgroundColor = [gaugeColor(soc), '#334155'];
+        socGauge.update('none');
+        setText('soc-value', `${fmt(soc, 0)}%`);
+        setText('bms-soh', fmt(d.bms1_soh, 0));
+
+        // Battery direction badge (>0 charging in Fox convention)
+        const battW = Number(d.battery_charge_power ?? 0);
+        const battBadge = document.getElementById('batt-power-badge');
+        if (battW > 50) {
+            battBadge.className = 'badge in';
+            battBadge.textContent = 'charging';
+        } else if (battW < -50) {
+            battBadge.className = 'badge out';
+            battBadge.textContent = 'discharging';
+        } else {
+            battBadge.className = 'badge idle';
+            battBadge.textContent = 'idle';
+        }
+        setText('batt-power-watts', `${fmt(Math.abs(battW), 0)} W`);
+
+        // Status header
+        setText('status-mode', d.status_1_str ?? '—');
+
+        // Tiles
+        setText('m-pv', fmt(d.pv_total_power_w, 0));
+        setText('m-pv-today', `Today: ${fmt(d.pv_today_kwh, 1)} kWh`);
+
+        const gridW = Number(d.meter_active_power ?? 0);
+        setText('m-grid', fmt(Math.abs(gridW), 0));
+        setText('m-grid-dir', gridW > 0 ? 'Exporting' : (gridW < 0 ? 'Importing' : 'Idle'));
+
+        setText('m-batt', fmt(Math.abs(battW), 0));
+        setText('m-batt-dir', battW > 0 ? 'Charging' : (battW < 0 ? 'Discharging' : 'Idle'));
+
+        setText('m-load', fmt(d.load_power_total, 0));
+        setText('m-load-today', `Today: ${fmt(d.load_today_kwh, 1)} kWh`);
+
+        setText('m-eps', fmt(d.eps_power_total, 0));
+        setText('m-eps-freq', `${fmt(d.eps_frequency, 2)} Hz`);
+
+        setText('m-freq', fmt(d.grid_frequency, 2));
+        setText('m-pf', `PF: ${fmt(d.power_factor, 3)}`);
+
+        // Grid phases
+        setText('v-r', fmt(d.grid_voltage_r, 1));
+        setText('v-s', fmt(d.grid_voltage_s, 1));
+        setText('v-t', fmt(d.grid_voltage_t, 1));
+        setText('i-r', fmt(d.inv_current_r, 2));
+        setText('i-s', fmt(d.inv_current_s, 2));
+        setText('i-t', fmt(d.inv_current_t, 2));
+
+        // PV strings table
+        const tbody = document.getElementById('pv-rows');
+        tbody.innerHTML = '';
+        const stringCount = Math.max(1, Math.min(4, Number(d.string_count ?? 4)));
+        for (let i = 1; i <= stringCount; i++) {
+            const v = d[`pv${i}_voltage`];
+            const a = d[`pv${i}_current`];
+            const w = d[`pv${i}_power`];
+            if (v === undefined && a === undefined && w === undefined) continue;
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td style="padding:3px 6px;">PV${i}</td>
+                <td style="text-align:right;padding:3px 6px;">${fmt(v, 1)}</td>
+                <td style="text-align:right;padding:3px 6px;">${fmt(a, 2)}</td>
+                <td style="text-align:right;padding:3px 6px;">${fmt(w, 0)}</td>`;
+            tbody.appendChild(tr);
+        }
+        setText('pv-total', fmt(d.pv_total_kwh, 1));
+
+        // Battery / BMS detail
+        setText('b-v', fmt(d.battery1_voltage, 1));
+        setText('b-i', fmt(d.battery1_current, 2));
+        setText('b-t', fmt(d.bms1_ambient_temp, 1));
+        setText('b-vmax', fmt(d.bms1_max_cell_mv, 0));
+        setText('b-vmin', fmt(d.bms1_min_cell_mv, 0));
+        setText('b-soh', fmt(d.bms1_soh, 0));
+
+        // Energy totals
+        setText('e-pv-today',   fmt(d.pv_today_kwh, 1));
+        setText('e-pv-total',   fmt(d.pv_total_kwh, 1));
+        setText('e-feed-today', fmt(d.feedin_today_kwh, 1));
+        setText('e-feed-total', fmt(d.feedin_total_kwh, 1));
+        setText('e-imp-today',  fmt(d.import_today_kwh, 1));
+        setText('e-imp-total',  fmt(d.import_total_kwh, 1));
+        setText('e-chg-today',  fmt(d.charge_today_kwh, 1));
+        setText('e-chg-total',  fmt(d.charge_total_kwh, 1));
+        setText('e-dis-today',  fmt(d.discharge_today_kwh, 1));
+        setText('e-dis-total',  fmt(d.discharge_total_kwh, 1));
+        setText('e-load-today', fmt(d.load_today_kwh, 1));
+        setText('e-load-total', fmt(d.load_total_kwh, 1));
+        setText('charge-today', fmt(d.charge_today_kwh, 1));
+        setText('discharge-today', fmt(d.discharge_today_kwh, 1));
+
+        // Alarms
+        const alarms = (d.alarms_active || []);
+        const ul = document.getElementById('alarm-list');
+        ul.innerHTML = '';
+        if (alarms.length === 0) {
+            ul.innerHTML = '<li class="alarm-none">No active alarms</li>';
+        } else {
+            alarms.forEach(a => {
+                const li = document.createElement('li');
+                li.textContent = a;
+                ul.appendChild(li);
+            });
+        }
+        setText('t-int', fmt(d.internal_temp, 1));
+    } catch (e) {
+        console.warn('Data fetch failed', e);
+    }
+}
+
+async function fetchHistory() {
+    try {
+        const h = await fetch('/api/history').then(r => r.json());
+        if (!h || !h.timestamps) return;
+
+        powerChart.data.labels = h.timestamps;
+        powerChart.data.datasets[0].data = h.pv_total_power_w;
+        powerChart.data.datasets[1].data = h.load_power_w;
+        powerChart.data.datasets[2].data = h.battery_power_w;
+        powerChart.data.datasets[3].data = h.meter_active_power_w;
+        powerChart.update('none');
+
+        socChart.data.labels = h.timestamps;
+        socChart.data.datasets[0].data = h.system_soc;
+        socChart.data.datasets[1].data = h.grid_frequency;
+        socChart.update('none');
+    } catch (e) {
+        console.warn('History fetch failed', e);
+    }
+}
+
+async function fetchMessage() {
+    try {
+        const m = await fetch('/api/message').then(r => r.json());
+        const bar = document.getElementById('message-bar');
+        bar.textContent = m.message || '';
+    } catch (e) {}
+}
+
+// initial + repeating polls
+fetchData();
+fetchHistory();
+fetchMessage();
+setInterval(fetchData, 5000);
+setInterval(fetchHistory, 60000);
+setInterval(fetchMessage, 30000);
+</script>
+</body>
+</html>
