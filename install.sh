@@ -9,14 +9,22 @@
 set -e
 
 echo "============================================"
-echo " Fox ESS H3 Pro Monitor — Server Setup"
+echo " Fox + Solis Combined Monitor — Server Setup"
 echo "============================================"
 
 # ----- Parameters (override via env if you like) -------------
-INV_IP="${INV_IP:-192.168.11.81}"
-INV_PORT="${INV_PORT:-502}"
-SLAVE_ID="${SLAVE_ID:-247}"
-POLL="${POLL:-10}"
+# Fox H3 inverter
+FOX_IP="${FOX_IP:-${INV_IP:-192.168.11.81}}"      # back-compat with old INV_IP
+FOX_PORT="${FOX_PORT:-${INV_PORT:-502}}"
+FOX_SLAVE="${FOX_SLAVE:-${SLAVE_ID:-247}}"
+FOX_POLL="${FOX_POLL:-${POLL:-10}}"
+
+# Solis S6-EH3P inverter
+SOLIS_IP="${SOLIS_IP:-192.168.11.214}"
+SOLIS_PORT="${SOLIS_PORT:-502}"
+SOLIS_SLAVE="${SOLIS_SLAVE:-1}"
+SOLIS_POLL="${SOLIS_POLL:-10}"
+
 FLASK_PORT="${FLASK_PORT:-5000}"
 
 INSTALL_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -44,7 +52,7 @@ echo ""
 echo "[3/5] Installing systemd service..."
 sudo tee "$SERVICE_FILE" > /dev/null <<SERVICEEOF
 [Unit]
-Description=Fox ESS H3 Pro Monitor (Modbus -> Flask)
+Description=Fox + Solis Combined Monitor (Modbus -> Flask)
 After=network-online.target
 Wants=network-online.target
 
@@ -55,10 +63,14 @@ WorkingDirectory=$INSTALL_DIR
 ExecStart=$VENV_DIR/bin/python app.py \\
     --host 127.0.0.1 \\
     --port $FLASK_PORT \\
-    --inverter-ip $INV_IP \\
-    --inverter-port $INV_PORT \\
-    --slave-id $SLAVE_ID \\
-    --poll-interval $POLL
+    --fox-ip $FOX_IP \\
+    --fox-port $FOX_PORT \\
+    --fox-slave $FOX_SLAVE \\
+    --fox-poll $FOX_POLL \\
+    --solis-ip $SOLIS_IP \\
+    --solis-port $SOLIS_PORT \\
+    --solis-slave $SOLIS_SLAVE \\
+    --solis-poll $SOLIS_POLL
 Restart=always
 RestartSec=10
 StandardOutput=journal
@@ -122,7 +134,8 @@ echo "============================================"
 echo " Setup complete!"
 echo "============================================"
 echo ""
-echo " Inverter target : $INV_IP:$INV_PORT (slave $SLAVE_ID, poll ${POLL}s)"
+echo " Fox H3 target   : $FOX_IP:$FOX_PORT  (slave $FOX_SLAVE, poll ${FOX_POLL}s)"
+echo " Solis target    : $SOLIS_IP:$SOLIS_PORT (slave $SOLIS_SLAVE, poll ${SOLIS_POLL}s)"
 echo " Flask backend   : http://127.0.0.1:$FLASK_PORT"
 echo " Dashboard URL   : http://desky.local/   (or http://192.168.55.33/)"
 echo ""
@@ -131,6 +144,9 @@ echo "   sudo systemctl status  fox-monitor"
 echo "   sudo journalctl -u fox-monitor -f"
 echo "   sudo systemctl restart fox-monitor"
 echo ""
-echo " To change inverter IP later, edit $SERVICE_FILE then:"
+echo " To change inverter IPs later, edit $SERVICE_FILE then:"
 echo "   sudo systemctl daemon-reload && sudo systemctl restart fox-monitor"
+echo ""
+echo " To temporarily disable one inverter, add --no-fox or --no-solis"
+echo " to ExecStart in $SERVICE_FILE"
 echo ""
