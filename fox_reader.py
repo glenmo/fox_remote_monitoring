@@ -155,8 +155,10 @@ INVERTER_REGISTERS = [
     (39336, 1, "mppt3_current",       "I16",  "A",   100,  "MPPT3 current"),
     (39337, 2, "mppt3_power",         "I32",  "W",   1,    "MPPT3 power"),
 
-    # System SoC
-    (39423, 1, "system_soc",          "U16",  "%",   1,    "System State of Charge"),
+    # System SoC — spec register 39423 does NOT exist on H3-15.0-SMART
+    # firmware (no response); we populate `system_soc` below from
+    # `bms1_soc` (37612) at the end of poll_once() instead.
+    # (39423, 1, "system_soc",        "U16",  "%",   1,   "System State of Charge"),
 ]
 
 # 2. Energy totals — Table 3-6 (39600-39631)
@@ -414,30 +416,82 @@ class FoxModbusReader:
             return None
         return None
 
+    # -- block planner -----------------------------------------------------
+    @staticmethod
+    def _build_blocks(registers, gap_tolerance=4, max_block=100):
+        """Group register definitions into contiguous bulk-read blocks.
+
+        Bulk reads are FAR easier on the FoxESS LAN dongle than reading 124
+        registers one-at-a-time. The dongle reliably handles a handful of
+        wide reads per cycle but tends to RST the socket after dozens of
+        rapid one-register reads.
+
+        Returns a list of {start, count, entries} dicts.
+        """
+        blocks = []
+        sorted_regs = sorted(registers, key=lambda r: r[0])
+        cur_start = None
+        cur_end = None  # inclusive last register address in current block
+        cur_entries = []
+
+        for entry in sorted_regs:
+            addr, count = entry[0], entry[1]
+            end = addr + count - 1
+            if cur_start is None:
+                cur_start, cur_end, cur_entries = addr, end, [entry]
+                continue
+            gap = addr - (cur_end + 1)
+            new_count = end - cur_start + 1
+            if gap <= gap_tolerance and new_count <= max_block:
+                cur_end = max(cur_end, end)
+                cur_entries.append(entry)
+            else:
+                blocks.append({
+                    "start": cur_start,
+                    "count": cur_end - cur_start + 1,
+                    "entries": cur_entries,
+                })
+                cur_start, cur_end, cur_entries = addr, end, [entry]
+        if cur_start is not None:
+            blocks.append({
+                "start": cur_start,
+                "count": cur_end - cur_start + 1,
+                "entries": cur_entries,
+            })
+        return blocks
+
     # -- main poll cycle ---------------------------------------------------
     def poll_once(self):
         new_data = {}
         new_raw = {}
         success = True
 
-        # Group reads by contiguous-ish blocks for efficiency. We keep the
-        # individual approach for simplicity & robustness — the H3 Pro polling
-        # rate is slow (5-30s) so dozens of small reads per cycle is fine.
-        for entry in ALL_REGISTERS:
-            addr, count, name, dtype, unit, gain, _desc = entry
-            registers = self._read_registers(addr, count)
-            if registers is None:
+        # Build the read plan once and cache it on the instance.
+        if not hasattr(self, "_blocks") or self._blocks is None:
+            self._blocks = self._build_blocks(ALL_REGISTERS)
+            for b in self._blocks:
+                log.info(f"Fox: read plan — {b['start']} +{b['count']} regs ({len(b['entries'])} fields)")
+
+        for blk in self._blocks:
+            registers = self._read_registers(blk["start"], blk["count"])
+            if registers is None or len(registers) < blk["count"]:
                 success = False
+                log.warning(f"Fox: bulk read failed at {blk['start']} (count {blk['count']})")
+                # Inter-block back-off — give the dongle a breather
+                time.sleep(0.2)
                 continue
-            value = self._decode(registers, dtype, gain)
-            if value is None:
-                success = False
-                continue
-            new_data[name] = value
-            new_raw[name] = registers[0] if count == 1 else list(registers)
-            # Tiny sleep — Fox inverters don't require a long inter-frame gap
-            # over TCP, but RS485-bridged gateways often do.
-            time.sleep(0.02)
+            # Decode each individual field from its slice of the bulk response
+            for entry in blk["entries"]:
+                addr, count, name, dtype, unit, gain, _desc = entry
+                offset = addr - blk["start"]
+                slice_ = registers[offset:offset + count]
+                value = self._decode(slice_, dtype, gain)
+                if value is None:
+                    continue
+                new_data[name] = value
+                new_raw[name] = slice_[0] if count == 1 else list(slice_)
+            # Small inter-block delay so we don't hammer the dongle
+            time.sleep(0.05)
 
         if not new_data:
             self.read_errors += 1
@@ -460,8 +514,20 @@ class FoxModbusReader:
         new_data["load_power_w"]     = new_data.get("load_power_total")     or 0
         new_data["meter_active_power_w"] = new_data.get("meter_active_power") or 0
 
-        # Fox sign convention: register 39162 >0 charging, <0 discharging.
-        # We surface battery_charge_power as-is so the UI can render direction.
+        # SoC fallback — H3-15.0-SMART firmware doesn't expose 39423; use
+        # BMS1 SoC (37612) instead so the dashboard gauge populates.
+        if "bms1_soc" in new_data:
+            new_data["system_soc"] = new_data["bms1_soc"]
+
+        # Battery direction — observed convention on H3-15.0-SMART firmware:
+        #   battery1_power / battery_power_total POSITIVE when CHARGING
+        #   (matches conventional "power flowing into the battery")
+        # The spec's 39162 sign appears inverted on this firmware, so we
+        # derive a canonical "battery_flow_w" the dashboard can rely on.
+        flow = new_data.get("battery_power_total")
+        if flow is None:
+            flow = new_data.get("battery1_power", 0)
+        new_data["battery_flow_w"] = flow  # >0 charging, <0 discharging
 
         # Metadata
         now = datetime.now()
