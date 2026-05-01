@@ -507,27 +507,30 @@ class FoxModbusReader:
             new_data["alarms_1"] + new_data["alarms_2"] + new_data["alarms_3"]
         )
 
-        # Provide watt-resolution copies of the kW fields for charts
-        new_data["pv_total_power_w"] = round((new_data.get("pv_total_power") or 0) * 1000, 1)
-        new_data["active_power_w"]   = round((new_data.get("active_power")   or 0) * 1000, 1)
-        new_data["battery_power_w"]  = new_data.get("battery_power_total")  or 0
-        new_data["load_power_w"]     = new_data.get("load_power_total")     or 0
-        new_data["meter_active_power_w"] = new_data.get("meter_active_power") or 0
-
         # SoC fallback — H3-15.0-SMART firmware doesn't expose 39423; use
         # BMS1 SoC (37612) instead so the dashboard gauge populates.
         if "bms1_soc" in new_data:
             new_data["system_soc"] = new_data["bms1_soc"]
 
-        # Battery direction — observed convention on H3-15.0-SMART firmware:
-        #   battery1_power / battery_power_total POSITIVE when CHARGING
-        #   (matches conventional "power flowing into the battery")
-        # The spec's 39162 sign appears inverted on this firmware, so we
-        # derive a canonical "battery_flow_w" the dashboard can rely on.
-        flow = new_data.get("battery_power_total")
+        # Battery flow — observed convention on H3-15.0-SMART firmware:
+        #   register 39162 (battery_charge_power) is POSITIVE when charging,
+        #   matching the FoxESS Modbus spec.
+        #   register 39237 (battery_power_total) is NEGATIVE when charging
+        #   on this firmware, opposite to what you'd expect.
+        # We surface a canonical "battery_flow_w" derived from 39162 so the
+        # dashboard / chart never has to guess.
+        flow = new_data.get("battery_charge_power")
         if flow is None:
-            flow = new_data.get("battery1_power", 0)
+            # Fallback: derive from battery_power_total but flip the sign
+            flow = -(new_data.get("battery_power_total") or 0)
         new_data["battery_flow_w"] = flow  # >0 charging, <0 discharging
+
+        # Watt-resolution copies of the kW fields for chart history
+        new_data["pv_total_power_w"] = round((new_data.get("pv_total_power") or 0) * 1000, 1)
+        new_data["active_power_w"]   = round((new_data.get("active_power")   or 0) * 1000, 1)
+        new_data["battery_power_w"]  = flow                                 # canonical sign
+        new_data["load_power_w"]     = new_data.get("load_power_total")     or 0
+        new_data["meter_active_power_w"] = new_data.get("meter_active_power") or 0
 
         # Metadata
         now = datetime.now()
