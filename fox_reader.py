@@ -195,23 +195,29 @@ BMS_REGISTERS = [
     (37632, 1, "bms1_remain_wh",      "U16", "Wh",   1,   "BMS1 remaining energy (raw, gain 0.1 multiplied)"),
 ]
 
-# 4. Meter1 / CT1 — Table 3-4 (38800-38846) — populated only if a meter is wired
+# 4. Meter1 / CT1 — Table 3-4 (38800-38846)
+#
+# Disabled by default: this site has no Fox-branded energy meter wired
+# to the inverter (consumption is measured separately by an SMA Webbox).
+# To re-enable, populate the list below and add METER_REGISTERS to
+# ALL_REGISTERS.  The reader will pick the new block up automatically.
 METER_REGISTERS = [
-    (38801, 1, "meter1_connected",    "U16", "",     1,   "Meter1 connection state (0/1)"),
-    (38802, 2, "meter1_voltage_r",    "I32", "V",    10,  "Meter1 R-phase voltage"),
-    (38804, 2, "meter1_voltage_s",    "I32", "V",    10,  "Meter1 S-phase voltage"),
-    (38806, 2, "meter1_voltage_t",    "I32", "V",    10,  "Meter1 T-phase voltage"),
-    (38808, 2, "meter1_current_r",    "I32", "A",    1000,"Meter1 R-phase current"),
-    (38810, 2, "meter1_current_s",    "I32", "A",    1000,"Meter1 S-phase current"),
-    (38812, 2, "meter1_current_t",    "I32", "A",    1000,"Meter1 T-phase current"),
-    (38814, 2, "meter1_power_total",  "I32", "W",    10,  "Meter1 combined active power"),
-    (38830, 2, "meter1_va_total",     "I32", "VA",   10,  "Meter1 combined apparent power"),
-    (38838, 2, "meter1_pf_total",     "I32", "",     1000,"Meter1 combined power factor"),
-    (38846, 2, "meter1_freq",         "I32", "Hz",   100, "Meter1 frequency"),
+    # (38801, 1, "meter1_connected",    "U16", "",     1,   "Meter1 connection state (0/1)"),
+    # (38802, 2, "meter1_voltage_r",    "I32", "V",    10,  "Meter1 R-phase voltage"),
+    # (38804, 2, "meter1_voltage_s",    "I32", "V",    10,  "Meter1 S-phase voltage"),
+    # (38806, 2, "meter1_voltage_t",    "I32", "V",    10,  "Meter1 T-phase voltage"),
+    # (38808, 2, "meter1_current_r",    "I32", "A",    1000,"Meter1 R-phase current"),
+    # (38810, 2, "meter1_current_s",    "I32", "A",    1000,"Meter1 S-phase current"),
+    # (38812, 2, "meter1_current_t",    "I32", "A",    1000,"Meter1 T-phase current"),
+    # (38814, 2, "meter1_power_total",  "I32", "W",    10,  "Meter1 combined active power"),
+    # (38830, 2, "meter1_va_total",     "I32", "VA",   10,  "Meter1 combined apparent power"),
+    # (38838, 2, "meter1_pf_total",     "I32", "",     1000,"Meter1 combined power factor"),
+    # (38846, 2, "meter1_freq",         "I32", "Hz",   100, "Meter1 frequency"),
 ]
 
-# Combined map — read in this order
-ALL_REGISTERS = INVERTER_REGISTERS + ENERGY_REGISTERS + BMS_REGISTERS + METER_REGISTERS
+# Combined map — read in this order. METER_REGISTERS intentionally omitted;
+# add it to the tuple below if/when a Fox energy meter is installed.
+ALL_REGISTERS = INVERTER_REGISTERS + ENERGY_REGISTERS + BMS_REGISTERS
 
 # ---------------------------------------------------------------------------
 # Lookup tables (decode bitfields and enums into human-readable strings)
