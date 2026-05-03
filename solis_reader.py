@@ -141,6 +141,11 @@ class SolisModbusReader:
         self.last_read_time = None
         self.read_errors = 0
         self.total_reads = 0
+        # Consecutive fully-failed poll cycles (no fields decoded). After
+        # this many in a row we force a fresh TCP connection — this is the
+        # classic Solis dongle "stuck socket" recovery path.
+        self._consecutive_failures = 0
+        self._FORCE_RECONNECT_AFTER = 3
 
         self.data = {}
         self.raw_data = {}
@@ -205,6 +210,15 @@ class SolisModbusReader:
 
     # -- connection -------------------------------------------------------
     def connect(self):
+        # Always start from a clean slate — pymodbus's internal state can
+        # report connected=True over a half-dead socket, so dispose of any
+        # previous client before opening a new one.
+        if self.client is not None:
+            try:
+                self.client.close()
+            except Exception:
+                pass
+            self.client = None
         try:
             self.client = ModbusTcpClient(host=self.host, port=self.port, timeout=5)
             self.connected = self.client.connect()
@@ -222,13 +236,32 @@ class SolisModbusReader:
                 self.client.close()
             except Exception:
                 pass
+            self.client = None
             self.connected = False
             log.info("Solis: Disconnected")
+
+    def _force_reconnect(self, reason=""):
+        """Drop the current TCP socket and force a fresh connect on next read.
+
+        Solis WiFi/LAN dongles sometimes leave a socket half-open after
+        the inverter sleeps for the night — pymodbus's client thinks it's
+        still connected but every read returns an error. Burning the
+        socket and reopening clears that.
+        """
+        if reason:
+            log.info(f"Solis: forcing reconnect ({reason})")
+        if self.client is not None:
+            try:
+                self.client.close()
+            except Exception:
+                pass
+            self.client = None
+        self.connected = False
 
     # -- low-level read ---------------------------------------------------
     def _read_input_registers(self, address, count):
         """Read `count` input registers starting at `address` (function 0x04)."""
-        if not self.connected:
+        if not self.connected or self.client is None:
             self.connect()
             if not self.connected:
                 return None
@@ -248,7 +281,10 @@ class SolisModbusReader:
             return result.registers
         except Exception as e:
             log.error(f"Solis: Exception reading register {address}: {e}")
-            self.connected = False
+            # Socket is almost certainly dead now — burn it so the next
+            # poll cycle opens a fresh connection rather than reusing a
+            # half-open TCP slot on the dongle.
+            self._force_reconnect(reason=f"read exception: {e}")
             return None
 
     @staticmethod
@@ -314,7 +350,15 @@ class SolisModbusReader:
 
         if not new_data:
             self.read_errors += 1
+            self._consecutive_failures += 1
+            if self._consecutive_failures >= self._FORCE_RECONNECT_AFTER:
+                self._force_reconnect(
+                    reason=f"{self._consecutive_failures} consecutive empty polls"
+                )
+                self._consecutive_failures = 0
             return
+        # We got *something* this cycle — reset the failure counter
+        self._consecutive_failures = 0
 
         # Derived fields
         # battery_power (V*I, signed by direction flag)

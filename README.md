@@ -77,13 +77,55 @@ Plus a JSON API for integrations (see Endpoints below).
 
 ## Quick start
 
+The installer auto-detects the host's name and IP, so the same script
+deploys cleanly on any Debian / Ubuntu / Raspberry Pi OS machine — just
+SSH to the target and run it.
+
 ```bash
-ssh you@desky.local
+ssh you@<host>.local             # e.g. desky.local or rubberduck.local
 git clone https://github.com/glenmo/fox_remote_monitoring.git
 cd fox_remote_monitoring
 bash install.sh
-# open http://desky.local/   (or  http://192.168.55.33/)
+# open http://<host>.local/
 ```
+
+### Where should this run?
+
+Both the Fox H3 and the Solis Modbus TCP gateway need to be reachable
+*from the host*. The installer doesn't tunnel anything for you. Pick
+the host that already sits on the same LAN as both inverters:
+
+| Scenario | Recommended host |
+|---|---|
+| Both inverters at one site, on the same LAN as a Pi | The Pi (e.g. **rubberduck.local**) |
+| Both on a desktop/server's LAN | That box (e.g. **desky.local**) |
+| Two sites, one inverter each, separate VPN | Run two services — one per site — and have one push to the other (see Architecture below) |
+
+### Coexistence with the older `microgrid_remote_monitor` project
+
+If the target Pi is already running `microgrid_remote_monitor` (which
+also reads the Solis), the new combined service will collide on Flask
+port `5000` *and* will double-poll the Solis Modbus gateway. The
+installer detects this and warns before continuing. To free it up:
+
+```bash
+sudo systemctl stop    microgrid-monitor
+sudo systemctl disable microgrid-monitor
+```
+
+The combined service in this repo is a strict superset of what
+`microgrid_remote_monitor` did for the Solis — same register layout,
+same bulk-read pattern, plus the Fox H3. If you only used the
+microgrid project for the Solis, you can safely retire it. If you
+also relied on its Eastron / SP Pro / SwitchDin readers, keep the old
+project around (paused) until those are ported across — easy to
+re-enable the old service later.
+
+The installer is conservative about Apache: it won't disable any
+custom vhosts that already exist on the target host. The `fox-monitor`
+vhost is configured to answer for `ServerName=$(hostname).local` only,
+so running both `microgrid-monitor` (on its own ServerName) and
+`fox-monitor` Apache vhosts side by side is safe.
 
 The installer:
 
@@ -188,18 +230,26 @@ file. Add or remove rows there — `_build_blocks()` auto-regroups them.
 
 ## Diagnostics
 
-Two utilities included for new sites:
+Three utilities included for new (or sick) sites:
 
-- **`probe_modbus.py <ip>`** — tries common slave IDs against three
-  known-good registers. Useful when first connecting an inverter.
+- **`probe_modbus.py <ip>`** — Fox-side slave-ID prober. Tries common
+  IDs against three known-good Fox registers (function 0x03). Useful
+  when first connecting a Fox H3.
+- **`probe_solis.py <ip>`** — Solis-side diagnostic. Walks through (1)
+  raw TCP socket open on port 502, (2) Modbus probe across common
+  slave IDs using function 0x04, (3) deep read of known-good Solis
+  input registers. Tells you exactly which layer is failing — most
+  often a Solis WiFi/LAN dongle that has stopped accepting Modbus TCP
+  connections and needs a power-cycle.
 - **`scan_soc.py <ip>`** — probes a handful of likely SoC register
   candidates across H3 firmware revisions. Useful when SoC reads as 0
   but the LCD shows something else.
 
 ```bash
-sudo systemctl stop fox-monitor
+sudo systemctl stop fox-monitor       # free the dongle's single TCP slot
 source venv/bin/activate
-python scan_soc.py 192.168.11.81
+python probe_solis.py 192.168.11.214
+python scan_soc.py    192.168.11.81
 sudo systemctl start fox-monitor
 ```
 
@@ -210,7 +260,8 @@ fox_remote_monitoring/
 ├── app.py              Flask app + REST API (Fox + Solis)
 ├── fox_reader.py       Fox H3 Modbus reader (function 0x03)
 ├── solis_reader.py     Solis S6 Modbus reader (function 0x04)
-├── probe_modbus.py     Slave-ID probe (diagnostic)
+├── probe_modbus.py     Fox slave-ID probe (diagnostic)
+├── probe_solis.py      Solis TCP/Modbus diagnostic
 ├── scan_soc.py         SoC register scanner (diagnostic)
 ├── requirements.txt    Python deps
 ├── install.sh          One-shot Debian + Apache installer

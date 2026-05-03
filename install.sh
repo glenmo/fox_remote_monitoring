@@ -1,9 +1,11 @@
 #!/bin/bash
 # ============================================================
-# Fox ESS Monitor — Debian / Apache2 Setup
+# Fox + Solis Combined Monitor — Debian / Ubuntu / Pi installer
 # ============================================================
-# Target host: desky.local  (192.168.55.33)  Debian + Apache2
-# Run on the server:    bash install.sh
+# Works on:
+#   * Ubuntu / Debian server (e.g. desky.local)
+#   * Raspberry Pi OS         (e.g. rubberduck.local)
+# Run on the target host:   bash install.sh
 # ============================================================
 
 set -e
@@ -27,10 +29,34 @@ SOLIS_POLL="${SOLIS_POLL:-10}"
 
 FLASK_PORT="${FLASK_PORT:-5000}"
 
+# Hostname used in the Apache vhost — auto-detected so the same script
+# deploys cleanly on desky.local AND rubberduck.local without edits.
+# Override with SERVER_NAME=foo.local bash install.sh
+SERVER_NAME="${SERVER_NAME:-$(hostname).local}"
+SERVER_IP="${SERVER_IP:-$(hostname -I 2>/dev/null | awk '{print $1}')}"
+
 INSTALL_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 VENV_DIR="$INSTALL_DIR/venv"
 SERVICE_FILE="/etc/systemd/system/fox-monitor.service"
 APACHE_CONF="/etc/apache2/sites-available/fox-monitor.conf"
+
+# Warn if microgrid_remote_monitor (the older project) is currently bound
+# to the same Flask port — they would conflict.
+if sudo -n systemctl is-active --quiet microgrid-monitor 2>/dev/null; then
+    echo ""
+    echo "  WARNING: microgrid-monitor.service is currently RUNNING on this host."
+    echo "  The Solis reader in fox+solis combined will collide with it on"
+    echo "  Flask port $FLASK_PORT and on Modbus polling of the Solis gateway."
+    echo "  Recommended: stop and disable it before continuing:"
+    echo "      sudo systemctl stop microgrid-monitor"
+    echo "      sudo systemctl disable microgrid-monitor"
+    echo ""
+    read -r -p "  Continue anyway? [y/N] " ans
+    case "$ans" in
+        y|Y|yes|YES) echo "  proceeding ..." ;;
+        *) echo "  aborting."; exit 1 ;;
+    esac
+fi
 
 # ----- 1. System packages ------------------------------------
 echo ""
@@ -85,19 +111,27 @@ sudo systemctl enable fox-monitor.service
 
 # ----- 4. Apache reverse-proxy vhost -------------------------
 echo ""
-echo "[4/5] Configuring Apache reverse proxy on desky.local ..."
+echo "[4/5] Configuring Apache reverse proxy on $SERVER_NAME ..."
 sudo a2enmod proxy proxy_http headers >/dev/null
 
-# Copy the bundled site config (or create one if missing)
-if [ -f "$INSTALL_DIR/fox-monitor.conf" ]; then
-    sudo cp "$INSTALL_DIR/fox-monitor.conf" "$APACHE_CONF"
-else
-    sudo tee "$APACHE_CONF" > /dev/null <<APACHEEOF
+# Always generate the vhost from this script so the right ServerName /
+# ServerAlias / Flask port land in it for THIS host. The bundled
+# fox-monitor.conf in the repo is used as a body template (we keep its
+# <LocationMatch> Fronius block intact); the <VirtualHost> wrapper is
+# rewritten here.
+sudo tee "$APACHE_CONF" > /dev/null <<APACHEEOF
 <VirtualHost *:80>
-    ServerName desky.local
-    ServerAlias 192.168.55.33
+    ServerName  $SERVER_NAME
+    ServerAlias $SERVER_IP
 
+    # Drop legacy Fronius DataManager UI probes — these aren't us.
+    <LocationMatch "^/(img/Fronius-Logo|uiLib/|src/style/|product/list|point\\.shtml|favicon\\.ico|device-manager)">
+        Require all denied
+    </LocationMatch>
+
+    # Reverse proxy to the Flask backend
     ProxyPreserveHost On
+    ProxyRequests     Off
     ProxyPass        / http://127.0.0.1:$FLASK_PORT/
     ProxyPassReverse / http://127.0.0.1:$FLASK_PORT/
 
@@ -106,17 +140,24 @@ else
         Header set Cache-Control "no-store, no-cache, must-revalidate"
     </LocationMatch>
 
-    ErrorLog \${APACHE_LOG_DIR}/fox-monitor-error.log
+    ErrorLog  \${APACHE_LOG_DIR}/fox-monitor-error.log
     CustomLog \${APACHE_LOG_DIR}/fox-monitor-access.log combined
 </VirtualHost>
 APACHEEOF
-fi
 
 sudo a2ensite fox-monitor.conf >/dev/null
 
-# Disable the default site if it's still on (it conflicts with port 80)
-if [ -f /etc/apache2/sites-enabled/000-default.conf ]; then
+# Be conservative on systems that already have other monitoring vhosts
+# (e.g. rubberduck.local already runs microgrid_remote_monitor). Only
+# disable Apache's stock 000-default if no other custom vhost is on.
+existing_sites=$(sudo find /etc/apache2/sites-enabled -maxdepth 1 -type l \
+                  ! -name "000-default.conf" ! -name "fox-monitor.conf" 2>/dev/null | wc -l)
+if [ -f /etc/apache2/sites-enabled/000-default.conf ] && [ "$existing_sites" -eq 0 ]; then
+    echo "  Disabling Apache's stock 000-default.conf (no other custom vhosts on this host)"
     sudo a2dissite 000-default.conf >/dev/null
+elif [ "$existing_sites" -gt 0 ]; then
+    echo "  Detected $existing_sites other custom Apache vhost(s). Leaving them alone."
+    echo "  fox-monitor.conf will respond for ServerName=$SERVER_NAME only."
 fi
 
 sudo apache2ctl configtest
@@ -137,7 +178,7 @@ echo ""
 echo " Fox H3 target   : $FOX_IP:$FOX_PORT  (slave $FOX_SLAVE, poll ${FOX_POLL}s)"
 echo " Solis target    : $SOLIS_IP:$SOLIS_PORT (slave $SOLIS_SLAVE, poll ${SOLIS_POLL}s)"
 echo " Flask backend   : http://127.0.0.1:$FLASK_PORT"
-echo " Dashboard URL   : http://desky.local/   (or http://192.168.55.33/)"
+echo " Dashboard URL   : http://$SERVER_NAME/   (or http://$SERVER_IP/)"
 echo ""
 echo " Useful commands:"
 echo "   sudo systemctl status  fox-monitor"
