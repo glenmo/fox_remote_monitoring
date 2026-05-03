@@ -602,9 +602,12 @@ function renderSolis(d, status) {
     // variant, which makes the banner permanently look broken. Battery
     // direction is derived from real values and reflects what the inverter
     // is actually doing right now.
+    // Sign convention (set in solis_reader.py / microgrid app.py):
+    //   battery_power > 0  = charging
+    //   battery_power < 0  = discharging
     let modeLabel = 'Idle';
-    if (battW > 50)       modeLabel = 'Discharging';
-    else if (battW < -50) modeLabel = 'Charging';
+    if (battW > 50)       modeLabel = 'Charging';
+    else if (battW < -50) modeLabel = 'Discharging';
     setText('solis-mode', modeLabel);
 
     setText('solis-pv',         fmt(d.pv_total_power, 0));
