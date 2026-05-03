@@ -27,6 +27,16 @@ SOLIS_PORT="${SOLIS_PORT:-502}"
 SOLIS_SLAVE="${SOLIS_SLAVE:-1}"
 SOLIS_POLL="${SOLIS_POLL:-10}"
 
+# Per-inverter disable flags. Set to 1 to skip that inverter entirely.
+# Useful when another service (e.g. microgrid_remote_monitor) is already
+# polling one of the inverters and you don't want to fight it for the
+# dongle's single Modbus TCP slot.
+#
+#   NO_SOLIS=1 bash install.sh   -> fox+solis service polls Fox only
+#   NO_FOX=1   bash install.sh   -> fox+solis service polls Solis only
+NO_FOX="${NO_FOX:-0}"
+NO_SOLIS="${NO_SOLIS:-0}"
+
 FLASK_PORT="${FLASK_PORT:-5000}"
 
 # Hostname used in the Apache vhost — auto-detected so the same script
@@ -76,6 +86,30 @@ deactivate
 # ----- 3. systemd service ------------------------------------
 echo ""
 echo "[3/5] Installing systemd service..."
+
+# Build the per-inverter argument blocks. If an inverter is disabled,
+# emit a bare --no-foo flag instead of its IP/port/slave/poll args.
+if [ "$NO_FOX" = "1" ]; then
+    FOX_ARGS="    --no-fox"
+    echo "  (NO_FOX=1) — fox-monitor service will skip the Fox inverter."
+else
+    FOX_ARGS="    --fox-ip $FOX_IP \\
+    --fox-port $FOX_PORT \\
+    --fox-slave $FOX_SLAVE \\
+    --fox-poll $FOX_POLL"
+fi
+
+if [ "$NO_SOLIS" = "1" ]; then
+    SOLIS_ARGS="    --no-solis"
+    echo "  (NO_SOLIS=1) — fox-monitor service will skip the Solis inverter."
+    echo "                 (Solis polling is presumably handled by another service.)"
+else
+    SOLIS_ARGS="    --solis-ip $SOLIS_IP \\
+    --solis-port $SOLIS_PORT \\
+    --solis-slave $SOLIS_SLAVE \\
+    --solis-poll $SOLIS_POLL"
+fi
+
 sudo tee "$SERVICE_FILE" > /dev/null <<SERVICEEOF
 [Unit]
 Description=Fox + Solis Combined Monitor (Modbus -> Flask)
@@ -89,14 +123,8 @@ WorkingDirectory=$INSTALL_DIR
 ExecStart=$VENV_DIR/bin/python app.py \\
     --host 127.0.0.1 \\
     --port $FLASK_PORT \\
-    --fox-ip $FOX_IP \\
-    --fox-port $FOX_PORT \\
-    --fox-slave $FOX_SLAVE \\
-    --fox-poll $FOX_POLL \\
-    --solis-ip $SOLIS_IP \\
-    --solis-port $SOLIS_PORT \\
-    --solis-slave $SOLIS_SLAVE \\
-    --solis-poll $SOLIS_POLL
+$FOX_ARGS \\
+$SOLIS_ARGS
 Restart=always
 RestartSec=10
 StandardOutput=journal
@@ -175,8 +203,16 @@ echo "============================================"
 echo " Setup complete!"
 echo "============================================"
 echo ""
-echo " Fox H3 target   : $FOX_IP:$FOX_PORT  (slave $FOX_SLAVE, poll ${FOX_POLL}s)"
-echo " Solis target    : $SOLIS_IP:$SOLIS_PORT (slave $SOLIS_SLAVE, poll ${SOLIS_POLL}s)"
+if [ "$NO_FOX" = "1" ]; then
+    echo " Fox H3 target   : (DISABLED via NO_FOX=1)"
+else
+    echo " Fox H3 target   : $FOX_IP:$FOX_PORT  (slave $FOX_SLAVE, poll ${FOX_POLL}s)"
+fi
+if [ "$NO_SOLIS" = "1" ]; then
+    echo " Solis target    : (DISABLED via NO_SOLIS=1 — handled by another service)"
+else
+    echo " Solis target    : $SOLIS_IP:$SOLIS_PORT (slave $SOLIS_SLAVE, poll ${SOLIS_POLL}s)"
+fi
 echo " Flask backend   : http://127.0.0.1:$FLASK_PORT"
 echo " Dashboard URL   : http://$SERVER_NAME/   (or http://$SERVER_IP/)"
 echo ""

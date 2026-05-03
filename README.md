@@ -103,23 +103,43 @@ the host that already sits on the same LAN as both inverters:
 
 ### Coexistence with the older `microgrid_remote_monitor` project
 
-If the target Pi is already running `microgrid_remote_monitor` (which
+If the target host is already running `microgrid_remote_monitor` (which
 also reads the Solis), the new combined service will collide on Flask
-port `5000` *and* will double-poll the Solis Modbus gateway. The
-installer detects this and warns before continuing. To free it up:
+port `5000` *and* will fight microgrid for the Solis dongle's single
+Modbus TCP slot. Two coexistence modes work; pick whichever fits.
+
+**Mode A — replace microgrid (cleanest):**
 
 ```bash
 sudo systemctl stop    microgrid-monitor
 sudo systemctl disable microgrid-monitor
+bash install.sh
 ```
 
 The combined service in this repo is a strict superset of what
 `microgrid_remote_monitor` did for the Solis — same register layout,
-same bulk-read pattern, plus the Fox H3. If you only used the
-microgrid project for the Solis, you can safely retire it. If you
-also relied on its Eastron / SP Pro / SwitchDin readers, keep the old
-project around (paused) until those are ported across — easy to
-re-enable the old service later.
+plus the Fox H3. If you only used the microgrid project for the
+Solis, you can safely retire it. If you also relied on its Eastron /
+SP Pro / SwitchDin readers, keep the old project around (paused) until
+those are ported across.
+
+**Mode B — keep microgrid for the Solis, add fox+solis for the Fox only:**
+
+```bash
+NO_SOLIS=1 bash install.sh
+```
+
+This generates a systemd unit with `--no-solis`, so fox-monitor only
+polls the Fox H3 and never touches the Solis dongle. The combined
+dashboard's Solis panel will show "Not polled by this service" in the
+banner; you'd continue to use microgrid's own dashboard for live
+Solis data, on whatever port/host it's bound to.
+
+**Why fox+solis can't share the Solis dongle with microgrid:**
+the Solis WiFi/LAN dongle accepts exactly one Modbus TCP client at a
+time. Two services polling it simultaneously results in `RST` /
+`BrokenPipe` errors on whichever one loses the race. `probe_solis.py`
+will tell you which protocol layer is failing if you're unsure.
 
 The installer is conservative about Apache: it won't disable any
 custom vhosts that already exist on the target host. The `fox-monitor`
@@ -151,6 +171,8 @@ The installer:
 | Solis slave | `1` | `SOLIS_SLAVE=…` |
 | Solis poll | `10` s | `SOLIS_POLL=…` |
 | Flask port | `5000` | `FLASK_PORT=…` |
+| Disable Fox | off | `NO_FOX=1 bash install.sh` |
+| Disable Solis | off | `NO_SOLIS=1 bash install.sh` |
 
 Backwards compatibility: `INV_IP`, `INV_PORT`, `SLAVE_ID`, `POLL` from
 the original Fox-only deployment still work and map onto the Fox flags.

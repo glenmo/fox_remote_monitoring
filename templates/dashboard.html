@@ -579,7 +579,14 @@ function renderSolis(d, status) {
     if (status?.connected) { dot.className = 'status-dot ok';  conn.textContent = `Solis ${status.host}`; }
     else                   { dot.className = 'status-dot err'; conn.textContent = `Solis disconnected`; }
 
-    if (!d || d.error) return;
+    // If we have no data yet (Solis disabled via --no-solis, or first poll
+    // hasn't completed), or the API returned an error, show a neutral
+    // "Polled by other service" state in the banner instead of stale or
+    // misleading text.
+    if (!d || d.error) {
+        setText('solis-mode', status?.connected ? '—' : 'Not polled by this service');
+        return;
+    }
 
     const soc = Number(d.battery_soc ?? 0);
     updateGauge(solisGauge, soc);
@@ -588,7 +595,17 @@ function renderSolis(d, status) {
     const battW = Number(d.battery_power ?? 0);
     setBadge('solis-batt-badge', battW);
     setText('solis-batt-watts', `${fmt(Math.abs(battW), 0)} W`);
-    setText('solis-mode', d.working_mode_str ?? '—');
+
+    // Show battery direction in the banner instead of working_mode_str.
+    // The Solis "working_mode" register (33091) returns 0 ("No response"
+    // in the spec's lookup table) during normal operation on this firmware
+    // variant, which makes the banner permanently look broken. Battery
+    // direction is derived from real values and reflects what the inverter
+    // is actually doing right now.
+    let modeLabel = 'Idle';
+    if (battW > 50)       modeLabel = 'Discharging';
+    else if (battW < -50) modeLabel = 'Charging';
+    setText('solis-mode', modeLabel);
 
     setText('solis-pv',         fmt(d.pv_total_power, 0));
     setText('solis-pv-today',   `Today: ${fmt(d.pv_today_energy, 1)} kWh`);
