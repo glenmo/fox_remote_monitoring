@@ -18,8 +18,9 @@ import os
 
 from flask import Flask, jsonify, render_template
 
-from fox_reader   import FoxModbusReader
-from solis_reader import SolisModbusReader
+from fox_reader        import FoxModbusReader
+from solis_reader      import SolisModbusReader
+from solis_http_reader import SolisHttpReader
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -171,6 +172,12 @@ def main():
                         help="Solis poll interval in seconds (default: 10)")
     parser.add_argument("--no-solis", action="store_true",
                         help="Disable the Solis inverter reader")
+    parser.add_argument("--solis-bridge-url", default=None,
+                        help="If set, fetch Solis data from another monitor's "
+                             "HTTP API at this URL (e.g. http://rubberduck.local:5000) "
+                             "instead of polling Modbus directly. Useful when "
+                             "another service already owns the Solis dongle's "
+                             "single Modbus TCP slot.")
 
     parser.add_argument("--debug", action="store_true",
                         help="Enable Flask debug mode")
@@ -199,12 +206,22 @@ def main():
         fox.start()
 
     if not args.no_solis:
-        solis = SolisModbusReader(
-            host=args.solis_ip,
-            port=args.solis_port,
-            slave_id=args.solis_slave,
-            poll_interval=args.solis_poll,
-        )
+        if args.solis_bridge_url:
+            log.info(f"Solis: HTTP bridge mode -> {args.solis_bridge_url}")
+            solis = SolisHttpReader(
+                host=args.solis_ip,                # kept for compat
+                port=args.solis_port,              # kept for compat
+                slave_id=args.solis_slave,         # kept for compat
+                poll_interval=args.solis_poll,
+                bridge_url=args.solis_bridge_url,
+            )
+        else:
+            solis = SolisModbusReader(
+                host=args.solis_ip,
+                port=args.solis_port,
+                slave_id=args.solis_slave,
+                poll_interval=args.solis_poll,
+            )
         solis.start()
 
     log.info(f"Starting web server on {args.host}:{args.port}")

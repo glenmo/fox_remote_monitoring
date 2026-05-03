@@ -391,22 +391,22 @@
             <div class="total-tile">
                 <div class="lbl">PV total now</div>
                 <div class="val"><span id="t-pv">—</span> W</div>
-                <div class="breakdown">Fox <span id="t-pv-fox">—</span> · Solis <span id="t-pv-solis">—</span></div>
+                <div class="breakdown">Fox <span id="t-pv-fox">—</span><span class="solis-breakdown"> · Solis <span id="t-pv-solis">—</span></span></div>
             </div>
             <div class="total-tile">
                 <div class="lbl">Battery flow now</div>
                 <div class="val"><span id="t-batt">—</span> W</div>
-                <div class="breakdown">Fox <span id="t-batt-fox">—</span> · Solis <span id="t-batt-solis">—</span></div>
+                <div class="breakdown">Fox <span id="t-batt-fox">—</span><span class="solis-breakdown"> · Solis <span id="t-batt-solis">—</span></span></div>
             </div>
             <div class="total-tile">
                 <div class="lbl">Combined SoC (avg)</div>
                 <div class="val"><span id="t-soc">—</span>%</div>
-                <div class="breakdown">Fox <span id="t-soc-fox">—</span>% · Solis <span id="t-soc-solis">—</span>%</div>
+                <div class="breakdown">Fox <span id="t-soc-fox">—</span>%<span class="solis-breakdown"> · Solis <span id="t-soc-solis">—</span>%</span></div>
             </div>
             <div class="total-tile">
                 <div class="lbl">PV today</div>
                 <div class="val"><span id="t-pv-today">—</span> kWh</div>
-                <div class="breakdown">Fox <span id="t-pv-today-fox">—</span> · Solis <span id="t-pv-today-solis">—</span></div>
+                <div class="breakdown">Fox <span id="t-pv-today-fox">—</span><span class="solis-breakdown"> · Solis <span id="t-pv-today-solis">—</span></span></div>
             </div>
         </div>
     </section>
@@ -671,17 +671,24 @@ function renderTotals(fox, foxStatus, solis, solisStatus) {
     const foxOk   = !!foxStatus?.connected;
     const solisOk = !!solisStatus?.connected;
 
+    // Hide the "· Solis X" suffix in each breakdown line when Solis isn't
+    // online — keeps the totals row uncluttered until either the bridge
+    // is wired up or the Modbus reader connects.
+    document.querySelectorAll('.solis-breakdown').forEach(el => {
+        el.style.display = solisOk ? '' : 'none';
+    });
+
     const fpv  = foxOk   ? Number(fox?.pv_total_power_w ?? 0)   : 0;
     const spv  = solisOk ? Number(solis?.pv_total_power ?? 0)   : 0;
     setText('t-pv',       fmt(fpv + spv, 0));
     setText('t-pv-fox',   foxOk   ? `${fmt(fpv, 0)} W` : 'Fox offline');
-    setText('t-pv-solis', solisOk ? `${fmt(spv, 0)} W` : 'Solis offline');
+    if (solisOk) setText('t-pv-solis', `${fmt(spv, 0)} W`);
 
     const fbatt = foxOk   ? Number(fox?.battery_flow_w ?? fox?.battery_charge_power ?? 0) : 0;
     const sbatt = solisOk ? Number(solis?.battery_power ?? 0) : 0;
     setText('t-batt',       fmt(fbatt + sbatt, 0));
     setText('t-batt-fox',   foxOk   ? `${fmt(fbatt, 0)} W` : 'Fox offline');
-    setText('t-batt-solis', solisOk ? `${fmt(sbatt, 0)} W` : 'Solis offline');
+    if (solisOk) setText('t-batt-solis', `${fmt(sbatt, 0)} W`);
 
     // Combined SoC = average across inverters that are actually online.
     const socs = [];
@@ -690,16 +697,15 @@ function renderTotals(fox, foxStatus, solis, solisStatus) {
     const avg = socs.length ? socs.reduce((a, b) => a + b, 0) / socs.length : NaN;
     setText('t-soc',       isNaN(avg) ? '—' : fmt(avg, 0));
     setText('t-soc-fox',   foxOk   ? fmt(Number(fox?.system_soc ?? fox?.bms1_soc ?? 0), 0) : '—');
-    setText('t-soc-solis', solisOk ? fmt(Number(solis?.battery_soc ?? 0), 0) : '—');
+    if (solisOk) setText('t-soc-solis', fmt(Number(solis?.battery_soc ?? 0), 0));
 
     // PV today is a daily energy counter — once the inverter sleeps it
     // stops updating but the last value is still the right number to show.
-    // Use stale data here, but flag offline inverters in the breakdown.
     const fpvT = Number(fox?.pv_today_kwh ?? 0);
-    const spvT = Number(solis?.pv_today_energy ?? 0);
+    const spvT = solisOk ? Number(solis?.pv_today_energy ?? 0) : 0;
     setText('t-pv-today',       fmt(fpvT + spvT, 1));
     setText('t-pv-today-fox',   foxOk   ? `${fmt(fpvT, 1)} kWh` : `${fmt(fpvT, 1)} kWh (stale)`);
-    setText('t-pv-today-solis', solisOk ? `${fmt(spvT, 1)} kWh` : `${fmt(spvT, 1)} kWh (stale)`);
+    if (solisOk) setText('t-pv-today-solis', `${fmt(spvT, 1)} kWh`);
 }
 
 // ---- Polling ----------------------------------------------------------

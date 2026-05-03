@@ -37,6 +37,12 @@ SOLIS_POLL="${SOLIS_POLL:-10}"
 NO_FOX="${NO_FOX:-0}"
 NO_SOLIS="${NO_SOLIS:-0}"
 
+# Optional: bridge Solis from another monitor's HTTP API instead of
+# polling Modbus directly. Useful when microgrid_remote_monitor on a
+# different host already owns the Solis dongle's single TCP slot.
+#   SOLIS_BRIDGE_URL=http://rubberduck.local:5000 bash install.sh
+SOLIS_BRIDGE_URL="${SOLIS_BRIDGE_URL:-}"
+
 FLASK_PORT="${FLASK_PORT:-5000}"
 
 # Hostname used in the Apache vhost — auto-detected so the same script
@@ -103,6 +109,11 @@ if [ "$NO_SOLIS" = "1" ]; then
     SOLIS_ARGS="    --no-solis"
     echo "  (NO_SOLIS=1) — fox-monitor service will skip the Solis inverter."
     echo "                 (Solis polling is presumably handled by another service.)"
+elif [ -n "$SOLIS_BRIDGE_URL" ]; then
+    SOLIS_ARGS="    --solis-bridge-url $SOLIS_BRIDGE_URL \\
+    --solis-poll $SOLIS_POLL"
+    echo "  (SOLIS_BRIDGE_URL set) — fox-monitor will proxy Solis data from"
+    echo "                           $SOLIS_BRIDGE_URL  (no direct Modbus polling)."
 else
     SOLIS_ARGS="    --solis-ip $SOLIS_IP \\
     --solis-port $SOLIS_PORT \\
@@ -210,6 +221,8 @@ else
 fi
 if [ "$NO_SOLIS" = "1" ]; then
     echo " Solis target    : (DISABLED via NO_SOLIS=1 — handled by another service)"
+elif [ -n "$SOLIS_BRIDGE_URL" ]; then
+    echo " Solis target    : (HTTP-bridged from $SOLIS_BRIDGE_URL, poll ${SOLIS_POLL}s)"
 else
     echo " Solis target    : $SOLIS_IP:$SOLIS_PORT (slave $SOLIS_SLAVE, poll ${SOLIS_POLL}s)"
 fi

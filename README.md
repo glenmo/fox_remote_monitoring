@@ -135,6 +135,22 @@ dashboard's Solis panel will show "Not polled by this service" in the
 banner; you'd continue to use microgrid's own dashboard for live
 Solis data, on whatever port/host it's bound to.
 
+**Mode C — bridge Solis from microgrid into the combined dashboard:**
+
+```bash
+SOLIS_BRIDGE_URL=http://rubberduck.local:5000 bash install.sh
+```
+
+This is the cleanest "one combined dashboard" outcome when microgrid
+is already polling the Solis from a different host. The fox-monitor
+service runs `solis_http_reader.py` instead of `solis_reader.py` —
+it never touches the Solis Modbus dongle, instead fetching live data
+every `SOLIS_POLL` seconds from microgrid's `/api/data`,
+`/api/history`, and `/api/status` endpoints. The Solis panel on the
+combined dashboard then shows live values from microgrid, with a
+status host shown as `http://rubberduck.local:5000 (bridged)`. No
+contention with the dongle, no duplicate Modbus polling.
+
 **Why fox+solis can't share the Solis dongle with microgrid:**
 the Solis WiFi/LAN dongle accepts exactly one Modbus TCP client at a
 time. Two services polling it simultaneously results in `RST` /
@@ -173,6 +189,7 @@ The installer:
 | Flask port | `5000` | `FLASK_PORT=…` |
 | Disable Fox | off | `NO_FOX=1 bash install.sh` |
 | Disable Solis | off | `NO_SOLIS=1 bash install.sh` |
+| Solis HTTP bridge | off | `SOLIS_BRIDGE_URL=http://rubberduck.local:5000 bash install.sh` |
 
 Backwards compatibility: `INV_IP`, `INV_PORT`, `SLAVE_ID`, `POLL` from
 the original Fox-only deployment still work and map onto the Fox flags.
@@ -282,6 +299,9 @@ fox_remote_monitoring/
 ├── app.py              Flask app + REST API (Fox + Solis)
 ├── fox_reader.py       Fox H3 Modbus reader (function 0x03)
 ├── solis_reader.py     Solis S6 Modbus reader (function 0x04)
+├── solis_http_reader.py Solis HTTP bridge — proxies live data from a
+│                        microgrid_remote_monitor instance instead of
+│                        polling Modbus directly
 ├── probe_modbus.py     Fox slave-ID probe (diagnostic)
 ├── probe_solis.py      Solis TCP/Modbus diagnostic
 ├── scan_soc.py         SoC register scanner (diagnostic)
