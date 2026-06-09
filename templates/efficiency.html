@@ -257,26 +257,29 @@
             </div>
         </div>
 
-        <!-- Three big efficiency tiles -->
-        <div class="grid-3">
-            <div class="card eff-tile">
-                <div class="label">AC ↔ AC round-trip</div>
-                <div class="value muted" id="eff-rt">––%</div>
-                <div class="sub" id="eff-rt-sub">awaiting data</div>
+        <!-- Charts (top) -->
+        <div class="grid-2">
+            <div class="card">
+                <div class="card-title">Battery — V / I / SoC</div>
+                <div class="chart-wrap"><canvas id="chart-batt"></canvas></div>
             </div>
-            <div class="card eff-tile">
-                <div class="label">DC → AC discharge</div>
-                <div class="value muted" id="eff-disc">––%</div>
-                <div class="sub" id="eff-disc-sub">awaiting data</div>
+            <div class="card">
+                <div class="card-title">Battery temperatures</div>
+                <div class="chart-wrap"><canvas id="chart-temp"></canvas></div>
             </div>
-            <div class="card eff-tile">
-                <div class="label">AC → DC charging</div>
-                <div class="value muted" id="eff-chg">––%</div>
-                <div class="sub" id="eff-chg-sub">awaiting data</div>
+        </div>
+        <div class="grid-2">
+            <div class="card">
+                <div class="card-title">DC vs AC power</div>
+                <div class="chart-wrap"><canvas id="chart-power"></canvas></div>
+            </div>
+            <div class="card">
+                <div class="card-title">Grid voltages &amp; frequency</div>
+                <div class="chart-wrap"><canvas id="chart-grid"></canvas></div>
             </div>
         </div>
 
-        <!-- Live operational panel + Mode breakdown -->
+        <!-- Live operational panel + Mode breakdown (middle) -->
         <div class="grid-2">
             <div class="card">
                 <div class="card-title">Live operational data</div>
@@ -314,25 +317,22 @@
             </div>
         </div>
 
-        <!-- Charts -->
-        <div class="grid-2">
-            <div class="card">
-                <div class="card-title">Battery — V / I / SoC</div>
-                <div class="chart-wrap"><canvas id="chart-batt"></canvas></div>
+        <!-- Three big efficiency tiles (bottom) -->
+        <div class="grid-3">
+            <div class="card eff-tile">
+                <div class="label">AC ↔ AC round-trip</div>
+                <div class="value muted" id="eff-rt">––%</div>
+                <div class="sub" id="eff-rt-sub">awaiting data</div>
             </div>
-            <div class="card">
-                <div class="card-title">Battery temperatures</div>
-                <div class="chart-wrap"><canvas id="chart-temp"></canvas></div>
+            <div class="card eff-tile">
+                <div class="label">DC → AC discharge</div>
+                <div class="value muted" id="eff-disc">––%</div>
+                <div class="sub" id="eff-disc-sub">awaiting data</div>
             </div>
-        </div>
-        <div class="grid-2">
-            <div class="card">
-                <div class="card-title">DC vs AC power</div>
-                <div class="chart-wrap"><canvas id="chart-power"></canvas></div>
-            </div>
-            <div class="card">
-                <div class="card-title">Grid voltages &amp; frequency</div>
-                <div class="chart-wrap"><canvas id="chart-grid"></canvas></div>
+            <div class="card eff-tile">
+                <div class="label">AC → DC charging</div>
+                <div class="value muted" id="eff-chg">––%</div>
+                <div class="sub" id="eff-chg-sub">awaiting data</div>
             </div>
         </div>
 
