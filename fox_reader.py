@@ -334,6 +334,14 @@ class FoxModbusReader:
         self._stop_event = threading.Event()
         self._thread = None
 
+        # Subscribers called once per successful poll with the new
+        # decoded `data` dict. Used by fox_logger to persist samples.
+        self._subscribers = []
+
+    def subscribe(self, callback):
+        """Register a callable(data_dict) invoked after each successful poll."""
+        self._subscribers.append(callback)
+
     # -- connection management ---------------------------------------------
     def connect(self):
         try:
@@ -562,6 +570,14 @@ class FoxModbusReader:
                             "battery_power_w", "load_power_w",
                             "meter_active_power_w", "grid_frequency"]:
                     self.history[key].append(new_data.get(key, 0))
+
+        # Fire subscribers outside the lock so a slow consumer can't
+        # block the next poll cycle.
+        for cb in self._subscribers:
+            try:
+                cb(new_data)
+            except Exception as e:
+                log.error(f"Fox: subscriber {cb} failed: {e}")
 
     def _poll_loop(self):
         while not self._stop_event.is_set():

@@ -21,6 +21,11 @@ from flask import Flask, jsonify, render_template
 from fox_reader        import FoxModbusReader
 from solis_reader      import SolisModbusReader
 from solis_http_reader import SolisHttpReader
+from fox_logger        import (
+    FoxEfficiencyLogger,
+    compute_efficiency,
+    window_seconds,
+)
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -37,8 +42,9 @@ log = logging.getLogger("combined_monitor")
 app = Flask(__name__, template_folder="templates", static_folder="static")
 
 # Global readers (set up in main)
-fox:   FoxModbusReader   = None
-solis: SolisModbusReader = None
+fox:    FoxModbusReader     = None
+solis:  SolisModbusReader   = None
+logger: FoxEfficiencyLogger = None
 
 
 # ---------------------------------------------------------------------------
@@ -117,6 +123,117 @@ def api_solis_status():
 
 
 # ---------------------------------------------------------------------------
+# Routes — Efficiency dashboard
+# ---------------------------------------------------------------------------
+import time as _time
+from flask import request
+
+
+@app.route("/efficiency")
+def efficiency_page():
+    return render_template("efficiency.html")
+
+
+@app.route("/api/efficiency/live")
+def api_eff_live():
+    """Latest sample plus current poll status — drives the live panel."""
+    if fox is None or logger is None:
+        return jsonify({"error": "Logger not initialised"}), 503
+    return jsonify({
+        "fox":    fox.get_data(),
+        "sample": logger.latest(),
+        "status": fox.get_status(),
+    })
+
+
+@app.route("/api/efficiency/rolling")
+def api_eff_rolling():
+    """Rolling efficiency over a window (1h, 24h, 7d, 30d, lifetime)."""
+    if logger is None:
+        return jsonify({"error": "Logger not initialised"}), 503
+    window = request.args.get("window", "24h")
+    now = int(_time.time())
+    secs = window_seconds(window)
+    if window == "lifetime":
+        start = logger.lifetime_start()
+    else:
+        start = now - (secs or 86400)
+    agg = logger.aggregate(start, now + 1)
+    eff = compute_efficiency(agg)
+    eff["window"]       = window
+    eff["window_start"] = start
+    eff["window_end"]   = now
+    eff["aggregate"]    = agg
+    return jsonify(eff)
+
+
+@app.route("/api/efficiency/history")
+def api_eff_history():
+    """Time-series samples in a window for the chart plots."""
+    if logger is None:
+        return jsonify({"error": "Logger not initialised"}), 503
+    window = request.args.get("window", "24h")
+    max_points = int(request.args.get("max_points", "1500"))
+    now = int(_time.time())
+    secs = window_seconds(window) or 86400
+    start = (logger.lifetime_start() if window == "lifetime" else now - secs)
+    rows = logger.samples_between(start, now + 1, max_points=max_points)
+    return jsonify({"window": window, "samples": rows})
+
+
+@app.route("/api/efficiency/modes")
+def api_eff_modes():
+    """Mode breakdown across the window — share of time and energy per mode."""
+    if logger is None:
+        return jsonify({"error": "Logger not initialised"}), 503
+    window = request.args.get("window", "24h")
+    now = int(_time.time())
+    secs = window_seconds(window) or 86400
+    start = (logger.lifetime_start() if window == "lifetime" else now - secs)
+    agg = logger.aggregate(start, now + 1)
+    total_secs = (
+        agg["discharge_pure_secs"] + agg["discharge_mixed_secs"]
+        + agg["charge_pv_secs"] + agg["charge_grid_secs"] + agg["charge_mixed_secs"]
+    )
+    return jsonify({
+        "window": window,
+        "modes": {
+            "discharge_pure":  {
+                "secs": agg["discharge_pure_secs"],
+                "dc_wh": agg["discharge_pure_dc_wh"],
+                "ac_wh": agg["discharge_pure_ac_wh"],
+            },
+            "discharge_mixed": {
+                "secs": agg["discharge_mixed_secs"],
+                "dc_wh": agg["discharge_mixed_dc_wh"],
+                "ac_wh": agg["discharge_mixed_ac_wh"],
+            },
+            "charge_pv":       {
+                "secs": agg["charge_pv_secs"],
+                "dc_wh": agg["charge_pv_dc_wh"],
+            },
+            "charge_grid":     {
+                "secs": agg["charge_grid_secs"],
+                "dc_wh": agg["charge_grid_dc_wh"],
+                "ac_wh": agg["charge_grid_ac_wh"],
+            },
+            "charge_mixed":    {
+                "secs": agg["charge_mixed_secs"],
+                "dc_wh": agg["charge_mixed_dc_wh"],
+                "ac_wh": agg["charge_mixed_ac_wh"],
+            },
+        },
+        "totals": {
+            "active_secs":    total_secs,
+            "pv_wh":          agg["pv_total_wh"],
+            "load_wh":        agg["load_total_wh"],
+            "grid_import_wh": agg["grid_import_wh"],
+            "grid_export_wh": agg["grid_export_wh"],
+        },
+    })
+
+
+# ---------------------------------------------------------------------------
 # Editable dashboard message (read live from message.txt)
 # ---------------------------------------------------------------------------
 MESSAGE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "message.txt")
@@ -137,7 +254,7 @@ def api_message():
 # Entry point
 # ---------------------------------------------------------------------------
 def main():
-    global fox, solis
+    global fox, solis, logger
 
     parser = argparse.ArgumentParser(
         description="Fox + Solis Combined Monitor — Modbus TCP web dashboard"
@@ -182,6 +299,14 @@ def main():
     parser.add_argument("--debug", action="store_true",
                         help="Enable Flask debug mode")
 
+    # Logger
+    parser.add_argument("--log-db", default=None,
+                        help="SQLite path for the operational log "
+                             "(default: ./data/fox_log.sqlite next to app.py, "
+                             "overridable with $FOX_LOG_DB)")
+    parser.add_argument("--no-log", action="store_true",
+                        help="Disable the operational logger / efficiency page")
+
     # Legacy compatibility for the older Fox-only flags
     parser.add_argument("--inverter-ip",   default=None, help=argparse.SUPPRESS)
     parser.add_argument("--inverter-port", type=int, default=None, help=argparse.SUPPRESS)
@@ -203,6 +328,14 @@ def main():
             slave_id=fox_slave,
             poll_interval=fox_poll,
         )
+        if not args.no_log:
+            try:
+                logger = FoxEfficiencyLogger(db_path=args.log_db)
+                fox.subscribe(logger.on_sample)
+                log.info("Logger: subscribed to Fox poll")
+            except Exception as e:
+                log.error(f"Logger: init failed, continuing without logging: {e}")
+                logger = None
         fox.start()
 
     if not args.no_solis:

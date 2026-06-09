@@ -12,3 +12,6 @@ venv/
 
 # Local-only
 *.log
+
+# Operational log SQLite (created at runtime)
+data/

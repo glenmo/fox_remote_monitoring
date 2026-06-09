@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fox H3 — Efficiency &amp; Operational Log</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/luxon/3.4.4/luxon.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-adapter-luxon/1.3.1/chartjs-adapter-luxon.umd.min.js"></script>
+    <style>
+        :root {
+            --bg-primary: #0f172a;
+            --bg-card: #1e293b;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --accent-blue: #3b82f6;
+            --accent-green: #22c55e;
+            --accent-yellow: #eab308;
+            --accent-orange: #f97316;
+            --accent-red: #ef4444;
+            --accent-purple: #a855f7;
+            --accent-cyan: #06b6d4;
+            --border: #334155;
+            --fox-accent: #f97316;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+        .header {
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border);
+            padding: 12px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .header h1 { font-size: 1.25rem; font-weight: 600; }
+        .header h1 .accent { color: var(--fox-accent); }
+        .header-status {
+            display: flex; align-items: center; gap: 16px;
+            font-size: 0.8rem; color: var(--text-secondary);
+        }
+        .status-dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            display: inline-block;
+        }
+        .status-dot.ok  { background: var(--accent-green); box-shadow: 0 0 6px var(--accent-green); }
+        .status-dot.err { background: var(--accent-red);   box-shadow: 0 0 6px var(--accent-red); }
+        .nav-link {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 0.85rem;
+            padding: 4px 10px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+        }
+        .nav-link:hover { color: var(--text-primary); border-color: var(--fox-accent); }
+
+        .dashboard {
+            max-width: 1700px;
+            margin: 0 auto;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+        @media (max-width: 1100px) {
+            .grid-2, .grid-3 { grid-template-columns: 1fr; }
+        }
+
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+        }
+        .card-title {
+            font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em;
+            color: var(--text-muted); margin-bottom: 10px;
+        }
+
+        /* Big efficiency tiles */
+        .eff-tile {
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            padding: 22px;
+            min-height: 160px;
+        }
+        .eff-tile .label {
+            font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em;
+            color: var(--text-muted); margin-bottom: 6px;
+        }
+        .eff-tile .value {
+            font-size: 2.8rem; font-weight: 700; line-height: 1;
+        }
+        .eff-tile .value.good   { color: var(--accent-green); }
+        .eff-tile .value.ok     { color: var(--accent-yellow); }
+        .eff-tile .value.poor   { color: var(--accent-orange); }
+        .eff-tile .value.muted  { color: var(--text-muted); }
+        .eff-tile .sub {
+            font-size: 0.75rem; color: var(--text-secondary); margin-top: 10px; text-align: center;
+        }
+
+        /* Window selector */
+        .window-bar {
+            display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px;
+        }
+        .window-bar button {
+            background: var(--bg-card);
+            color: var(--text-secondary);
+            border: 1px solid var(--border);
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            font-family: inherit;
+        }
+        .window-bar button.active {
+            background: var(--fox-accent);
+            color: white;
+            border-color: var(--fox-accent);
+        }
+
+        /* Live operational table */
+        .kv-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px 14px;
+            font-size: 0.85rem;
+        }
+        .kv-grid .k { color: var(--text-muted); }
+        .kv-grid .v { text-align: right; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+        .kv-section {
+            font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.08em;
+            color: var(--text-muted); margin-top: 12px; margin-bottom: 4px;
+            border-bottom: 1px solid var(--border); padding-bottom: 2px;
+            grid-column: 1 / -1;
+        }
+        .kv-section:first-child { margin-top: 0; }
+
+        /* Mode breakdown */
+        .mode-row {
+            display: grid;
+            grid-template-columns: 130px 1fr auto;
+            gap: 10px;
+            align-items: center;
+            padding: 6px 0;
+            font-size: 0.85rem;
+        }
+        .mode-row .name { color: var(--text-primary); }
+        .mode-row .bar {
+            height: 8px; background: var(--border); border-radius: 4px; overflow: hidden;
+        }
+        .mode-row .bar > div { height: 100%; }
+        .mode-row .pct { color: var(--text-secondary); font-variant-numeric: tabular-nums; min-width: 110px; text-align: right; }
+
+        .bar-discharge_pure  { background: var(--accent-cyan); }
+        .bar-discharge_mixed { background: var(--accent-blue); }
+        .bar-charge_pv       { background: var(--accent-green); }
+        .bar-charge_grid     { background: var(--accent-orange); }
+        .bar-charge_mixed    { background: var(--accent-purple); }
+
+        .totals-row {
+            display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+            margin-top: 12px;
+        }
+        .totals-row .t {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 8px 10px;
+            font-size: 0.85rem;
+        }
+        .totals-row .t .lbl { color: var(--text-muted); font-size: 0.7rem; }
+        .totals-row .t .val { color: var(--text-primary); font-weight: 600; }
+
+        .chart-wrap { position: relative; height: 260px; }
+
+        footer {
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.75rem;
+            padding: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Fox H3 <span class="accent">Efficiency</span> &amp; Log</h1>
+        <div class="header-status">
+            <span><span id="conn-dot" class="status-dot err"></span> <span id="conn-text">connecting…</span></span>
+            <span id="poll-counters">reads: – &nbsp; errors: –</span>
+            <a class="nav-link" href="/">← Combined dashboard</a>
+        </div>
+    </div>
+
+    <div class="dashboard">
+
+        <!-- Window selector -->
+        <div>
+            <div class="window-bar" id="window-bar">
+                <button data-window="1h">1 h</button>
+                <button data-window="24h" class="active">24 h</button>
+                <button data-window="7d">7 d</button>
+                <button data-window="30d">30 d</button>
+                <button data-window="lifetime">Lifetime</button>
+            </div>
+        </div>
+
+        <!-- Three big efficiency tiles -->
+        <div class="grid-3">
+            <div class="card eff-tile">
+                <div class="label">AC ↔ AC round-trip</div>
+                <div class="value muted" id="eff-rt">––%</div>
+                <div class="sub" id="eff-rt-sub">awaiting data</div>
+            </div>
+            <div class="card eff-tile">
+                <div class="label">DC → AC discharge</div>
+                <div class="value muted" id="eff-disc">––%</div>
+                <div class="sub" id="eff-disc-sub">awaiting data</div>
+            </div>
+            <div class="card eff-tile">
+                <div class="label">AC → DC charging</div>
+                <div class="value muted" id="eff-chg">––%</div>
+                <div class="sub" id="eff-chg-sub">awaiting data</div>
+            </div>
+        </div>
+
+        <!-- Live operational panel + Mode breakdown -->
+        <div class="grid-2">
+            <div class="card">
+                <div class="card-title">Live operational data</div>
+                <div class="kv-grid">
+                    <div class="kv-section">Battery (DC)</div>
+                    <div class="k">SoC</div><div class="v" id="live-soc">–</div>
+                    <div class="k">SoH</div><div class="v" id="live-soh">–</div>
+                    <div class="k">Voltage</div><div class="v" id="live-batt-v">–</div>
+                    <div class="k">Current</div><div class="v" id="live-batt-i">–</div>
+                    <div class="k">Power (DC)</div><div class="v" id="live-batt-p">–</div>
+                    <div class="k">Temp (ambient)</div><div class="v" id="live-batt-temp">–</div>
+                    <div class="k">Temp (min/max cell)</div><div class="v" id="live-batt-tcell">–</div>
+                    <div class="k">Cell mV (min/max)</div><div class="v" id="live-batt-cellmv">–</div>
+
+                    <div class="kv-section">Grid (AC, per phase)</div>
+                    <div class="k">Voltage R/S/T</div><div class="v" id="live-grid-v">–</div>
+                    <div class="k">Current R/S/T</div><div class="v" id="live-grid-i">–</div>
+                    <div class="k">Frequency</div><div class="v" id="live-grid-f">–</div>
+                    <div class="k">Power factor</div><div class="v" id="live-pf">–</div>
+                    <div class="k">Meter (export +)</div><div class="v" id="live-meter">–</div>
+
+                    <div class="kv-section">Inverter / PV / load</div>
+                    <div class="k">Inverter AC power</div><div class="v" id="live-inv-p">–</div>
+                    <div class="k">PV total</div><div class="v" id="live-pv">–</div>
+                    <div class="k">Load total</div><div class="v" id="live-load">–</div>
+                    <div class="k">Internal temp</div><div class="v" id="live-inv-temp">–</div>
+                    <div class="k">Mode (now)</div><div class="v" id="live-mode">–</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-title">Mode breakdown</div>
+                <div id="mode-rows"></div>
+                <div class="totals-row" id="mode-totals"></div>
+            </div>
+        </div>
+
+        <!-- Charts -->
+        <div class="grid-2">
+            <div class="card">
+                <div class="card-title">Battery — V / I / SoC</div>
+                <div class="chart-wrap"><canvas id="chart-batt"></canvas></div>
+            </div>
+            <div class="card">
+                <div class="card-title">Battery temperatures</div>
+                <div class="chart-wrap"><canvas id="chart-temp"></canvas></div>
+            </div>
+        </div>
+        <div class="grid-2">
+            <div class="card">
+                <div class="card-title">DC vs AC power</div>
+                <div class="chart-wrap"><canvas id="chart-power"></canvas></div>
+            </div>
+            <div class="card">
+                <div class="card-title">Grid voltages &amp; frequency</div>
+                <div class="chart-wrap"><canvas id="chart-grid"></canvas></div>
+            </div>
+        </div>
+
+        <footer>
+            Data sampled at the Fox H3 poll cadence; energies trapezoidally
+            integrated into hourly buckets. SQLite log at
+            <code>./data/fox_log.sqlite</code>.
+        </footer>
+    </div>
+
+    <script>
+    let currentWindow = '24h';
+
+    // ------------------------------------------------------------------
+    // Window selector
+    // ------------------------------------------------------------------
+    document.querySelectorAll('#window-bar button').forEach(btn => {
+        btn.addEventListener('click', () => {
+            currentWindow = btn.dataset.window;
+            document.querySelectorAll('#window-bar button').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            refreshWindowed();
+        });
+    });
+
+    // ------------------------------------------------------------------
+    // Formatting helpers
+    // ------------------------------------------------------------------
+    const fmt = (v, unit='', digits=1) => {
+        if (v === null || v === undefined || isNaN(v)) return '–';
+        return Number(v).toFixed(digits) + (unit ? ' ' + unit : '');
+    };
+    const fmtPct = v => (v === null || v === undefined) ? '––%' : (v * 100).toFixed(1) + '%';
+    const fmtKwh = wh => {
+        if (wh === null || wh === undefined) return '–';
+        const v = wh / 1000;
+        return v.toFixed(v >= 100 ? 0 : v >= 10 ? 1 : 2) + ' kWh';
+    };
+    const fmtDuration = s => {
+        if (!s) return '0 m';
+        if (s < 3600) return Math.round(s/60) + ' m';
+        return (s/3600).toFixed(1) + ' h';
+    };
+    const fmtSigned = (v, unit='W', digits=0) => {
+        if (v === null || v === undefined) return '–';
+        const sign = v > 0 ? '+' : '';
+        return sign + Number(v).toFixed(digits) + ' ' + unit;
+    };
+    const colourClass = pct => {
+        if (pct === null || pct === undefined) return 'muted';
+        if (pct >= 0.95) return 'good';
+        if (pct >= 0.90) return 'ok';
+        return 'poor';
+    };
+
+    // ------------------------------------------------------------------
+    // Live panel (1 s refresh — same Fox poll backs it though, so the
+    // numbers will only actually change every 10 s)
+    // ------------------------------------------------------------------
+    async function refreshLive() {
+        try {
+            const r = await fetch('/api/efficiency/live');
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            const d = await r.json();
+            const f = d.fox || {};
+            const s = d.sample || {};
+            const st = d.status || {};
+
+            // Connection status
+            const dot = document.getElementById('conn-dot');
+            const txt = document.getElementById('conn-text');
+            if (st.connected) {
+                dot.className = 'status-dot ok';
+                txt.textContent = 'Fox ' + st.host;
+            } else {
+                dot.className = 'status-dot err';
+                txt.textContent = 'Fox disconnected';
+            }
+            document.getElementById('poll-counters').textContent =
+                `reads: ${st.total_reads ?? '–'}   errors: ${st.read_errors ?? '–'}`;
+
+            // Battery
+            document.getElementById('live-soc').textContent       = fmt(f.system_soc, '%', 0);
+            document.getElementById('live-soh').textContent       = fmt(f.bms1_soh, '%', 0);
+            document.getElementById('live-batt-v').textContent    = fmt(f.battery1_voltage, 'V');
+            document.getElementById('live-batt-i').textContent    = fmt(f.battery1_current, 'A', 2);
+            document.getElementById('live-batt-p').textContent    = fmtSigned(f.battery_flow_w, 'W');
+            document.getElementById('live-batt-temp').textContent = fmt(f.bms1_ambient_temp, '°C');
+            document.getElementById('live-batt-tcell').textContent =
+                fmt(f.bms1_min_temp, '°C') + ' / ' + fmt(f.bms1_max_temp, '°C');
+            document.getElementById('live-batt-cellmv').textContent =
+                (f.bms1_min_cell_mv ?? '–') + ' / ' + (f.bms1_max_cell_mv ?? '–') + ' mV';
+
+            // Grid AC
+            document.getElementById('live-grid-v').textContent =
+                fmt(f.grid_voltage_r,'V') + ' / ' + fmt(f.grid_voltage_s,'V') + ' / ' + fmt(f.grid_voltage_t,'V');
+            document.getElementById('live-grid-i').textContent =
+                fmt(f.inv_current_r,'A',2) + ' / ' + fmt(f.inv_current_s,'A',2) + ' / ' + fmt(f.inv_current_t,'A',2);
+            document.getElementById('live-grid-f').textContent = fmt(f.grid_frequency, 'Hz', 2);
+            document.getElementById('live-pf').textContent     = fmt(f.power_factor, '', 3);
+            document.getElementById('live-meter').textContent  = fmtSigned(f.meter_active_power, 'W');
+
+            // PV / inverter / load
+            document.getElementById('live-inv-p').textContent   = fmtSigned(f.active_power_w, 'W');
+            document.getElementById('live-pv').textContent      = fmt(f.pv_total_power_w, 'W');
+            document.getElementById('live-load').textContent    = fmt(f.load_power_total, 'W');
+            document.getElementById('live-inv-temp').textContent= fmt(f.internal_temp, '°C');
+            document.getElementById('live-mode').textContent    = s.mode || '–';
+        } catch (e) {
+            console.warn('live refresh failed', e);
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Rolling efficiency tiles
+    // ------------------------------------------------------------------
+    async function refreshRolling() {
+        const r = await fetch('/api/efficiency/rolling?window=' + currentWindow);
+        if (!r.ok) return;
+        const e = await r.json();
+
+        const setTile = (id, ratio, sub) => {
+            const el = document.getElementById(id);
+            const subEl = document.getElementById(id + '-sub');
+            el.textContent = fmtPct(ratio);
+            el.className = 'value ' + colourClass(ratio);
+            subEl.textContent = sub;
+        };
+
+        setTile('eff-rt', e.ac_ac_roundtrip,
+            (e.dc_ac_charge && e.dc_ac_discharge)
+                ? `${fmtPct(e.dc_ac_charge)} × ${fmtPct(e.dc_ac_discharge)}`
+                : 'need both charge + discharge data');
+
+        setTile('eff-disc', e.dc_ac_discharge,
+            e.discharge_pure_secs > 0
+                ? `${fmtKwh(e.discharge_pure_ac_wh)} AC / ${fmtKwh(e.discharge_pure_dc_wh)} DC over ${fmtDuration(e.discharge_pure_secs)}`
+                : 'no pure-discharge intervals yet');
+
+        setTile('eff-chg', e.dc_ac_charge,
+            e.charge_grid_secs > 0
+                ? `${fmtKwh(e.charge_grid_dc_wh)} DC / ${fmtKwh(e.charge_grid_ac_wh)} AC over ${fmtDuration(e.charge_grid_secs)}`
+                : 'no grid-only charge intervals yet');
+    }
+
+    // ------------------------------------------------------------------
+    // Mode breakdown
+    // ------------------------------------------------------------------
+    async function refreshModes() {
+        const r = await fetch('/api/efficiency/modes?window=' + currentWindow);
+        if (!r.ok) return;
+        const m = await r.json();
+        const total = Math.max(1, m.totals.active_secs);
+
+        const rows = [
+            ['discharge_pure',  'Discharge (no PV)'],
+            ['discharge_mixed', 'Discharge (+PV)'],
+            ['charge_pv',       'Charge from PV'],
+            ['charge_grid',     'Charge from grid'],
+            ['charge_mixed',    'Charge mixed'],
+        ];
+        const root = document.getElementById('mode-rows');
+        root.innerHTML = '';
+        rows.forEach(([key, label]) => {
+            const v = m.modes[key];
+            const pct = v.secs / total;
+            const dc = v.dc_wh ?? 0;
+            const ac = v.ac_wh ?? null;
+            const energy = ac !== null
+                ? `${fmtKwh(dc)} DC · ${fmtKwh(ac)} AC`
+                : `${fmtKwh(dc)} DC`;
+            const div = document.createElement('div');
+            div.className = 'mode-row';
+            div.innerHTML = `
+                <div class="name">${label}</div>
+                <div class="bar"><div class="bar-${key}" style="width:${(pct*100).toFixed(1)}%"></div></div>
+                <div class="pct">${(pct*100).toFixed(1)}% · ${fmtDuration(v.secs)}<br>
+                    <span style="color:var(--text-muted); font-size:0.75rem">${energy}</span>
+                </div>
+            `;
+            root.appendChild(div);
+        });
+
+        const tot = document.getElementById('mode-totals');
+        tot.innerHTML = `
+            <div class="t"><div class="lbl">PV</div><div class="val">${fmtKwh(m.totals.pv_wh)}</div></div>
+            <div class="t"><div class="lbl">Load</div><div class="val">${fmtKwh(m.totals.load_wh)}</div></div>
+            <div class="t"><div class="lbl">Grid import</div><div class="val">${fmtKwh(m.totals.grid_import_wh)}</div></div>
+            <div class="t"><div class="lbl">Grid export</div><div class="val">${fmtKwh(m.totals.grid_export_wh)}</div></div>
+        `;
+    }
+
+    // ------------------------------------------------------------------
+    // Charts
+    // ------------------------------------------------------------------
+    Chart.defaults.color = '#94a3b8';
+    Chart.defaults.borderColor = '#334155';
+
+    const baseOpts = (ylabel, y2label) => ({
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        animation: false,
+        plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11 } } } },
+        scales: {
+            x: { type: 'time', time: { tooltipFormat: 'MMM d HH:mm' }, ticks: { maxTicksLimit: 8 } },
+            y: { position: 'left', title: { display: !!ylabel, text: ylabel } },
+            ...(y2label && {
+                y1: { position: 'right', title: { display: true, text: y2label }, grid: { drawOnChartArea: false } }
+            }),
+        },
+    });
+
+    const charts = {};
+
+    function makeChart(canvasId, datasets, ylabel, y2label) {
+        const ctx = document.getElementById(canvasId).getContext('2d');
+        return new Chart(ctx, {
+            type: 'line',
+            data: { datasets },
+            options: baseOpts(ylabel, y2label),
+        });
+    }
+
+    function initCharts() {
+        charts.batt = makeChart('chart-batt', [
+            { label: 'Battery V', data: [], borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,0.1)', borderWidth: 1.5, pointRadius: 0, yAxisID: 'y' },
+            { label: 'Battery I (A)', data: [], borderColor: '#f97316', backgroundColor: 'rgba(249,115,22,0.1)', borderWidth: 1.5, pointRadius: 0, yAxisID: 'y1' },
+            { label: 'SoC %', data: [], borderColor: '#22c55e', backgroundColor: 'rgba(34,197,94,0.1)', borderWidth: 1.5, pointRadius: 0, yAxisID: 'y1' },
+        ], 'V', 'A / %');
+
+        charts.temp = makeChart('chart-temp', [
+            { label: 'Ambient', data: [], borderColor: '#06b6d4', borderWidth: 1.5, pointRadius: 0 },
+            { label: 'Cell max',  data: [], borderColor: '#ef4444', borderWidth: 1.5, pointRadius: 0 },
+            { label: 'Cell min',  data: [], borderColor: '#a855f7', borderWidth: 1.5, pointRadius: 0 },
+        ], '°C');
+
+        charts.power = makeChart('chart-power', [
+            { label: 'Battery DC (W)', data: [], borderColor: '#f97316', borderWidth: 1.5, pointRadius: 0 },
+            { label: 'Inverter AC (W)',  data: [], borderColor: '#3b82f6', borderWidth: 1.5, pointRadius: 0 },
+            { label: 'PV (W)',           data: [], borderColor: '#eab308', borderWidth: 1.5, pointRadius: 0 },
+            { label: 'Meter (W, +export)',  data: [], borderColor: '#22c55e', borderWidth: 1.5, pointRadius: 0 },
+        ], 'W');
+
+        charts.grid = makeChart('chart-grid', [
+            { label: 'Grid V R', data: [], borderColor: '#ef4444', borderWidth: 1.2, pointRadius: 0, yAxisID: 'y' },
+            { label: 'Grid V S', data: [], borderColor: '#eab308', borderWidth: 1.2, pointRadius: 0, yAxisID: 'y' },
+            { label: 'Grid V T', data: [], borderColor: '#06b6d4', borderWidth: 1.2, pointRadius: 0, yAxisID: 'y' },
+            { label: 'Frequency (Hz)', data: [], borderColor: '#a855f7', borderWidth: 1.5, pointRadius: 0, yAxisID: 'y1' },
+        ], 'V', 'Hz');
+    }
+
+    function setData(chart, datasetIdx, samples, field) {
+        const pts = samples
+            .filter(s => s[field] !== null && s[field] !== undefined)
+            .map(s => ({ x: s.ts * 1000, y: s[field] }));
+        chart.data.datasets[datasetIdx].data = pts;
+    }
+
+    async function refreshCharts() {
+        const r = await fetch('/api/efficiency/history?window=' + currentWindow + '&max_points=1500');
+        if (!r.ok) return;
+        const h = await r.json();
+        const s = h.samples || [];
+        if (!charts.batt) initCharts();
+
+        setData(charts.batt, 0, s, 'batt_v');
+        setData(charts.batt, 1, s, 'batt_i');
+        setData(charts.batt, 2, s, 'soc');
+
+        setData(charts.temp, 0, s, 'batt_temp_amb');
+        setData(charts.temp, 1, s, 'batt_temp_max');
+        setData(charts.temp, 2, s, 'batt_temp_min');
+
+        setData(charts.power, 0, s, 'batt_p_dc');
+        setData(charts.power, 1, s, 'inv_p_ac');
+        setData(charts.power, 2, s, 'pv_p');
+        setData(charts.power, 3, s, 'meter_p');
+
+        setData(charts.grid, 0, s, 'grid_v_r');
+        setData(charts.grid, 1, s, 'grid_v_s');
+        setData(charts.grid, 2, s, 'grid_v_t');
+        setData(charts.grid, 3, s, 'inv_freq');
+
+        Object.values(charts).forEach(c => c.update('none'));
+    }
+
+    function refreshWindowed() {
+        refreshRolling();
+        refreshModes();
+        refreshCharts();
+    }
+
+    // ------------------------------------------------------------------
+    // Boot
+    // ------------------------------------------------------------------
+    refreshLive();
+    refreshWindowed();
+    setInterval(refreshLive, 5000);
+    setInterval(refreshWindowed, 30000);
+
+    </script>
+</body>
+</html>
