@@ -112,6 +112,7 @@
         /* Window selector */
         .window-bar {
             display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px;
+            align-items: center;
         }
         .window-bar button {
             background: var(--bg-card);
@@ -127,6 +128,34 @@
             background: var(--fox-accent);
             color: white;
             border-color: var(--fox-accent);
+        }
+        .window-bar .spacer { flex: 1; }
+        .window-bar .csv-group {
+            display: flex; gap: 6px; align-items: center;
+            font-size: 0.8rem; color: var(--text-secondary);
+        }
+        .window-bar .csv-group select {
+            background: var(--bg-card);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            font-family: inherit;
+        }
+        .window-bar .csv-group a.csv-btn {
+            background: var(--bg-card);
+            color: var(--fox-accent);
+            border: 1px solid var(--fox-accent);
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        .window-bar .csv-group a.csv-btn:hover {
+            background: var(--fox-accent);
+            color: white;
         }
 
         /* Live operational table */
@@ -212,6 +241,19 @@
                 <button data-window="7d">7 d</button>
                 <button data-window="30d">30 d</button>
                 <button data-window="lifetime">Lifetime</button>
+
+                <span class="spacer"></span>
+
+                <span class="csv-group">
+                    Download CSV
+                    <select id="csv-window">
+                        <option value="1h">last 1 h</option>
+                        <option value="24h" selected>last 24 h</option>
+                        <option value="7d">last 7 d</option>
+                        <option value="30d">last 30 d</option>
+                    </select>
+                    <a id="csv-btn" class="csv-btn" href="/api/efficiency/export.csv?window=24h" download>↓ Export</a>
+                </span>
             </div>
         </div>
 
@@ -314,6 +356,13 @@
             btn.classList.add('active');
             refreshWindowed();
         });
+    });
+
+    // CSV download — keep the link href in sync with the dropdown
+    const csvSel = document.getElementById('csv-window');
+    const csvBtn = document.getElementById('csv-btn');
+    csvSel.addEventListener('change', () => {
+        csvBtn.href = '/api/efficiency/export.csv?window=' + csvSel.value;
     });
 
     // ------------------------------------------------------------------

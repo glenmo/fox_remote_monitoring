@@ -125,8 +125,11 @@ def api_solis_status():
 # ---------------------------------------------------------------------------
 # Routes — Efficiency dashboard
 # ---------------------------------------------------------------------------
+import csv
+import io
 import time as _time
-from flask import request
+from datetime import datetime
+from flask import request, Response
 
 
 @app.route("/efficiency")
@@ -179,6 +182,76 @@ def api_eff_history():
     start = (logger.lifetime_start() if window == "lifetime" else now - secs)
     rows = logger.samples_between(start, now + 1, max_points=max_points)
     return jsonify({"window": window, "samples": rows})
+
+
+# Column order for the CSV export — anything the samples table has but
+# isn't listed here is appended at the end so we don't silently drop
+# fields if the schema grows.
+CSV_PRIMARY_COLS = [
+    "timestamp", "ts",
+    "mode",
+    "soc", "soh",
+    "batt_v", "batt_i", "batt_p_dc",
+    "batt_temp_amb", "batt_temp_max", "batt_temp_min",
+    "cell_min_mv", "cell_max_mv",
+    "inv_p_ac", "inv_pf", "inv_freq", "inv_temp",
+    "grid_v_r", "grid_v_s", "grid_v_t",
+    "grid_i_r", "grid_i_s", "grid_i_t",
+    "meter_p", "pv_p", "load_p",
+    "e_pv_today", "e_load_today",
+    "e_charge_today", "e_discharge_today",
+    "e_import_today", "e_feedin_today",
+]
+
+
+@app.route("/api/efficiency/export.csv")
+def api_eff_export_csv():
+    """Stream the 10 s sample log as CSV for a chosen window."""
+    if logger is None:
+        return jsonify({"error": "Logger not initialised"}), 503
+
+    window = request.args.get("window", "24h")
+    now = int(_time.time())
+    secs = window_seconds(window)
+    if window == "lifetime":
+        start = logger.lifetime_start()
+    else:
+        start = now - (secs or 86400)
+
+    # Discover the actual column set from the schema so we don't have
+    # to keep CSV_PRIMARY_COLS in sync with the table by hand. Anything
+    # new on the table shows up at the end of the CSV.
+    sample_keys = logger.sample_columns()
+    extra  = [k for k in sample_keys if k not in CSV_PRIMARY_COLS and k != "ts"]
+    header = CSV_PRIMARY_COLS + extra
+
+    def generate():
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(header)
+        yield buf.getvalue()
+        buf.seek(0); buf.truncate(0)
+
+        for row in logger.samples_iter(start, now + 1):
+            d = dict(row)
+            ts_unix = d.get("ts")
+            iso = datetime.fromtimestamp(ts_unix).isoformat(timespec="seconds") if ts_unix else ""
+            line = [iso if c == "timestamp" else d.get(c, "") for c in header]
+            writer.writerow(line)
+            yield buf.getvalue()
+            buf.seek(0); buf.truncate(0)
+
+    start_iso = datetime.fromtimestamp(start).strftime("%Y%m%dT%H%M")
+    end_iso   = datetime.fromtimestamp(now).strftime("%Y%m%dT%H%M")
+    filename  = f"fox_log_{window}_{start_iso}_to_{end_iso}.csv"
+    return Response(
+        generate(),
+        mimetype="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 @app.route("/api/efficiency/modes")

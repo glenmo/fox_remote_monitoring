@@ -424,6 +424,35 @@ class FoxEfficiencyLogger:
         finally:
             conn.close()
 
+    def sample_columns(self):
+        """Return the samples-table column names in schema order."""
+        conn = self._connect()
+        try:
+            return [r[1] for r in conn.execute("PRAGMA table_info(samples)")]
+        finally:
+            conn.close()
+
+    def samples_iter(self, start_unix, end_unix, chunk=1000):
+        """
+        Stream samples in [start_unix, end_unix] without materialising
+        the full list. Yields sqlite3.Row objects in chunks for use by
+        the CSV exporter.
+        """
+        conn = self._connect()
+        try:
+            cur = conn.execute(
+                "SELECT * FROM samples WHERE ts BETWEEN ? AND ? ORDER BY ts",
+                (start_unix, end_unix),
+            )
+            while True:
+                rows = cur.fetchmany(chunk)
+                if not rows:
+                    break
+                for r in rows:
+                    yield r
+        finally:
+            conn.close()
+
     def samples_between(self, start_unix, end_unix, max_points=2000):
         """Return downsampled samples in [start_unix, end_unix]."""
         conn = self._connect()
