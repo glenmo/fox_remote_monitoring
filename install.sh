@@ -51,6 +51,14 @@ FLASK_PORT="${FLASK_PORT:-5000}"
 SERVER_NAME="${SERVER_NAME:-$(hostname).local}"
 SERVER_IP="${SERVER_IP:-$(hostname -I 2>/dev/null | awk '{print $1}')}"
 
+# Extra hostnames / IPs the Apache vhost should also answer to.
+# Use this if a remote portal (e.g. burgan over WireGuard) hits Apache
+# on a different IP than $SERVER_IP. Example for the public mirror:
+#   EXTRA_SERVER_ALIAS="10.99.0.2"   bash install.sh   # on desky
+#   EXTRA_SERVER_ALIAS="10.99.0.3"   bash install.sh   # on rubberduck
+# Space-separate multiple aliases.
+EXTRA_SERVER_ALIAS="${EXTRA_SERVER_ALIAS:-}"
+
 INSTALL_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 VENV_DIR="$INSTALL_DIR/venv"
 SERVICE_FILE="/etc/systemd/system/fox-monitor.service"
@@ -161,7 +169,7 @@ sudo a2enmod proxy proxy_http headers >/dev/null
 sudo tee "$APACHE_CONF" > /dev/null <<APACHEEOF
 <VirtualHost *:80>
     ServerName  $SERVER_NAME
-    ServerAlias $SERVER_IP
+    ServerAlias $SERVER_IP $EXTRA_SERVER_ALIAS
 
     # Drop legacy Fronius DataManager UI probes — these aren't us.
     <LocationMatch "^/(img/Fronius-Logo|uiLib/|src/style/|product/list|point\\.shtml|favicon\\.ico|device-manager)">

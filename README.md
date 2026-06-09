@@ -190,6 +190,7 @@ The installer:
 | Disable Fox | off | `NO_FOX=1 bash install.sh` |
 | Disable Solis | off | `NO_SOLIS=1 bash install.sh` |
 | Solis HTTP bridge | off | `SOLIS_BRIDGE_URL=http://rubberduck.local:5000 bash install.sh` |
+| Extra Apache vhost alias | none | `EXTRA_SERVER_ALIAS="10.99.0.2" bash install.sh` |
 
 Backwards compatibility: `INV_IP`, `INV_PORT`, `SLAVE_ID`, `POLL` from
 the original Fox-only deployment still work and map onto the Fox flags.
@@ -291,6 +292,29 @@ python probe_solis.py 192.168.11.214
 python scan_soc.py    192.168.11.81
 sudo systemctl start fox-monitor
 ```
+
+## Public mirror via WireGuard portal
+
+If you also run [smartenergylab_software](https://github.com/glenmo/smartenergylab_software)
+on a public host (the portal that mirrors this dashboard at
+`https://fox.smartenergylab.software/`), the portal's burgan host
+reaches the Apache vhost on this host **over the WireGuard tunnel**.
+Apache then proxies to Flask as usual — no Flask-side change needed.
+
+For Apache to answer cleanly on the WireGuard interface IP, tell the
+installer about it via `EXTRA_SERVER_ALIAS`:
+
+```bash
+# On desky (10.99.0.2 = its address on the wg0 tunnel):
+EXTRA_SERVER_ALIAS="10.99.0.2" bash install.sh
+```
+
+Without it, Apache falls back to whichever vhost happens to be first
+alphabetically — usually still us, but a fresh ServerAlias is more
+explicit. If you've already installed and just want to add the alias
+to the live vhost without re-running the script, append it to
+`/etc/apache2/sites-available/fox-monitor.conf` and run
+`sudo systemctl reload apache2`.
 
 ## Files
 
